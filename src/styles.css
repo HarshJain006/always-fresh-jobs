@@ -121,3 +121,22 @@
 @utility shadow-glow {
   box-shadow: var(--shadow-glow);
 }
+@utility grid-pattern {
+  background-image:
+    linear-gradient(to right, oklch(0.5 0.05 260 / 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.5 0.05 260 / 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 40%, transparent 80%);
+}
+@utility text-gradient-primary {
+  background-image: linear-gradient(135deg, oklch(0.55 0.19 265), oklch(0.68 0.16 200));
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+@utility ring-soft {
+  box-shadow:
+    0 0 0 1px oklch(0.5 0.05 260 / 0.08),
+    0 1px 2px oklch(0.2 0.02 260 / 0.04),
+    0 12px 32px -12px oklch(0.2 0.04 260 / 0.10);
+}
