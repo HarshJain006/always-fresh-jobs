@@ -23,7 +23,7 @@ export function Header() {
             <Link to="/login">Sign in</Link>
           </Button>
           <Button asChild size="sm" className="bg-gradient-primary shadow-glow">
-            <Link to="/login">Start free trial</Link>
+            <Link to="/login">Get Started</Link>
           </Button>
         </div>
       </div>
