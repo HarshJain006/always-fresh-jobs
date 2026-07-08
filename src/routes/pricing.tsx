@@ -122,7 +122,7 @@ function Pricing() {
         </div>
 
         <p className="mt-10 text-center text-xs text-muted-foreground">
-          Payments handled securely by Razorpay. Cancel anytime from your dashboard.
+          Payments handled securely by Razorpay.
         </p>
       </main>
       <Footer />
