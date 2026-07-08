@@ -60,26 +60,27 @@ function Landing() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
 
-  // Map vertical wheel to horizontal scroll
+  // Only horizontal scroll (trackpad / shift+wheel / arrow keys) changes panels.
+  // Vertical scroll is preserved for content inside each panel.
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-      e.preventDefault();
-      el.scrollBy({ left: e.deltaY, behavior: "auto" });
-    };
     const onScroll = () => {
       const i = Math.round(el.scrollLeft / el.clientWidth);
       setActive(Math.max(0, Math.min(PANELS.length - 1, i)));
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight") el.scrollBy({ left: el.clientWidth, behavior: "smooth" });
+      if (e.key === "ArrowLeft") el.scrollBy({ left: -el.clientWidth, behavior: "smooth" });
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("keydown", onKey);
     return () => {
-      el.removeEventListener("wheel", onWheel);
       el.removeEventListener("scroll", onScroll);
+      window.removeEventListener("keydown", onKey);
     };
   }, []);
+
 
   const goTo = (i: number) => {
     const el = scrollerRef.current;
