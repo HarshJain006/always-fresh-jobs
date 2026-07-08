@@ -12,6 +12,9 @@ import {
   Crown,
   Rocket,
   Circle,
+  Pause,
+  Square,
+  Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -34,21 +37,35 @@ export const Route = createFileRoute("/dashboard")({
 });
 
 type Platform = { id: string; name: string; connected: boolean; last: string | null };
-type Log = { id: string; ok: boolean; text: string; time: string };
+type Log = { id: string; ok: boolean; text: string; time: string; ts: number };
+type AutomationState = "idle" | "running" | "paused";
 
 function Dashboard() {
   const navigate = useNavigate();
   const [user, setUser] = useState<AppUser | null>(null);
   const [resume, setResume] = useState<{ name: string; size: string } | null>(null);
-  const [started, setStarted] = useState(false);
+  const [state, setState] = useState<AutomationState>("idle");
   const [platforms, setPlatforms] = useState<Platform[]>([
     { id: "naukri", name: "Naukri", connected: false, last: null },
     { id: "indeed", name: "Indeed", connected: false, last: null },
   ]);
+
+  // Seed sample logs. Newest first (queue). Filtered to last 7 days below.
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
   const [logs] = useState<Log[]>([
-    { id: "1", ok: true, text: "Resume updated on Naukri", time: "Today, 8:02 AM" },
-    { id: "2", ok: false, text: "Indeed update failed — retry scheduled", time: "Yesterday, 8:04 AM" },
+    { id: "1", ok: true, text: "Resume updated on Naukri", time: "Today, 8:02 AM", ts: now - 4 * 60 * 60 * 1000 },
+    { id: "2", ok: false, text: "Indeed update failed — retry scheduled", time: "Yesterday, 8:04 AM", ts: now - 1 * day },
+    { id: "3", ok: true, text: "Resume updated on Indeed", time: "2 days ago, 8:03 AM", ts: now - 2 * day },
+    { id: "4", ok: true, text: "Resume updated on Naukri", time: "3 days ago, 8:01 AM", ts: now - 3 * day },
+    { id: "5", ok: true, text: "Resume updated on Naukri", time: "5 days ago, 8:02 AM", ts: now - 5 * day },
+    { id: "6", ok: true, text: "Resume updated on Indeed", time: "10 days ago, 8:04 AM", ts: now - 10 * day },
   ]);
+
+  const recentLogs = useMemo(() => {
+    const cutoff = now - 7 * day;
+    return logs.filter((l) => l.ts >= cutoff).sort((a, b) => b.ts - a.ts);
+  }, [logs, now, day]);
 
   useEffect(() => {
     const u = getCurrentUser();
@@ -62,7 +79,8 @@ function Dashboard() {
   const anyConnected = platforms.some((p) => p.connected);
   const step1Done = !!resume;
   const step2Done = anyConnected;
-  const step3Done = started && step1Done && step2Done;
+  const running = state === "running";
+  const step3Done = state !== "idle" && step1Done && step2Done;
 
   const currentStep = useMemo(() => {
     if (!step1Done) return 1;
@@ -108,14 +126,29 @@ function Dashboard() {
     }
     if (!step1Done) return toast.error("Upload your resume first.");
     if (!step2Done) return toast.error("Connect at least one platform.");
-    setStarted(true);
+    setState("running");
     toast.success("Automation started. First refresh tomorrow at 8:00 AM.");
+  }
+
+  function handlePause() {
+    setState("paused");
+    toast("Automation paused. Resume anytime.");
+  }
+
+  function handleResume() {
+    setState("running");
+    toast.success("Automation resumed.");
+  }
+
+  function handleStop() {
+    setState("idle");
+    toast("Automation stopped.");
   }
 
   const progressPct = step3Done ? 100 : step2Done ? 66 : step1Done ? 33 : 8;
 
   return (
-    <div className="min-h-screen bg-background pb-32">
+    <div className="min-h-screen bg-background pb-16">
       <Toaster />
       <Header />
 
@@ -233,69 +266,116 @@ function Dashboard() {
 
           <StepCard
             n={3}
-            title="Start daily refresh"
-            desc="Automation runs every morning at 8:00 AM IST. You can pause anytime."
+            title="Control your automation"
+            desc="Runs every morning at 8:00 AM IST. Start, pause, or stop whenever you like."
             done={step3Done}
             active={currentStep === 3}
             locked={!step1Done || !step2Done}
           >
-            {step3Done ? (
-              <div className="flex items-center gap-3 rounded-lg border border-success/30 bg-success/8 p-4">
-                <div className="grid h-9 w-9 place-items-center rounded-lg bg-success/15 text-success">
-                  <Zap className="h-4 w-4" />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold text-success">Automation active</div>
-                  <div className="text-xs text-muted-foreground">Next refresh: tomorrow, 8:00 AM IST</div>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Once you press <span className="font-medium text-foreground">Start</span>, we'll take over — no more manual logins.
-              </p>
-            )}
+            <AutomationStatus state={state} />
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {state === "idle" && (
+                <Button
+                  onClick={handleStart}
+                  disabled={!allowed || !step1Done || !step2Done}
+                  className="bg-gradient-primary shadow-glow"
+                >
+                  <Rocket className="mr-2 h-4 w-4" /> Start daily refresh
+                </Button>
+              )}
+              {state === "running" && (
+                <>
+                  <Button variant="outline" onClick={handlePause}>
+                    <Pause className="mr-2 h-4 w-4" /> Pause
+                  </Button>
+                  <Button variant="ghost" onClick={handleStop} className="text-destructive hover:text-destructive">
+                    <Square className="mr-2 h-4 w-4" /> Stop
+                  </Button>
+                </>
+              )}
+              {state === "paused" && (
+                <>
+                  <Button onClick={handleResume} className="bg-gradient-primary shadow-glow">
+                    <Play className="mr-2 h-4 w-4" /> Resume
+                  </Button>
+                  <Button variant="ghost" onClick={handleStop} className="text-destructive hover:text-destructive">
+                    <Square className="mr-2 h-4 w-4" /> Stop
+                  </Button>
+                </>
+              )}
+            </div>
           </StepCard>
         </div>
 
-        {/* Recent activity — only after started */}
-        {step3Done && (
-          <Card className="mt-10 border-border/60 p-6">
+        {/* Recent activity — always below the start controls */}
+        <Card className="mt-10 border-border/60 p-6">
+          <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Recent activity</h2>
+            <span className="text-xs text-muted-foreground">Last 7 days · newest first</span>
+          </div>
+          {recentLogs.length === 0 ? (
+            <p className="mt-4 text-sm text-muted-foreground">
+              No activity yet. Once automation starts, refresh events will appear here.
+            </p>
+          ) : (
             <ul className="mt-4 space-y-2">
-              {logs.map((l) => (
-                <li key={l.id} className="flex items-center justify-between rounded-lg border border-border/60 bg-surface-muted/40 p-3 text-sm">
+              {recentLogs.map((l) => (
+                <li
+                  key={l.id}
+                  className="flex items-center justify-between rounded-lg border border-border/60 bg-surface-muted/40 p-3 text-sm"
+                >
                   <div className="flex items-center gap-3">
-                    {l.ok ? <CheckCircle2 className="h-4 w-4 text-success" /> : <XCircle className="h-4 w-4 text-destructive" />}
+                    {l.ok ? (
+                      <CheckCircle2 className="h-4 w-4 text-success" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-destructive" />
+                    )}
                     <span>{l.text}</span>
                   </div>
                   <span className="text-xs text-muted-foreground">{l.time}</span>
                 </li>
               ))}
             </ul>
-          </Card>
-        )}
+          )}
+        </Card>
       </main>
+    </div>
+  );
+}
 
-      {/* Sticky Start bar at bottom */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border/60 bg-background/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="hidden text-sm text-muted-foreground sm:block">
-            {step3Done
-              ? "You're all set — automation is running."
-              : `Step ${currentStep} of 3 · ${step1Done ? "" : "Upload resume"}${!step1Done ? "" : !step2Done ? "Connect a platform" : "Ready to start"}`}
-          </div>
-          <Button
-            size="lg"
-            onClick={handleStart}
-            disabled={!allowed || step3Done || !step1Done || !step2Done}
-            className="ml-auto bg-gradient-primary shadow-glow"
-          >
-            <Rocket className="mr-2 h-4 w-4" />
-            {step3Done ? "Running" : "Start daily refresh"}
-          </Button>
+function AutomationStatus({ state }: { state: AutomationState }) {
+  if (state === "running") {
+    return (
+      <div className="flex items-center gap-3 rounded-lg border border-success/30 bg-success/8 p-4">
+        <div className="grid h-9 w-9 place-items-center rounded-lg bg-success/15 text-success">
+          <Zap className="h-4 w-4" />
+        </div>
+        <div>
+          <div className="text-sm font-semibold text-success">Automation active</div>
+          <div className="text-xs text-muted-foreground">Next refresh: tomorrow, 8:00 AM IST</div>
         </div>
       </div>
-    </div>
+    );
+  }
+  if (state === "paused") {
+    return (
+      <div className="flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4">
+        <div className="grid h-9 w-9 place-items-center rounded-lg bg-warning/20 text-warning-foreground">
+          <Pause className="h-4 w-4" />
+        </div>
+        <div>
+          <div className="text-sm font-semibold">Automation paused</div>
+          <div className="text-xs text-muted-foreground">No refreshes until you resume.</div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <p className="text-sm text-muted-foreground">
+      Press <span className="font-medium text-foreground">Start</span> to begin daily refreshes. You can
+      pause or stop at any time.
+    </p>
   );
 }
 
