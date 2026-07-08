@@ -41,12 +41,12 @@ const PLATFORMS = [
 
 const FAQ = [
   {
-    q: "What does ResumePulse do?",
-    a: "ResumePulse automatically refreshes your resume every day on job portals like Naukri and Indeed. You upload it once, connect your accounts, and we keep your profile marked as recently updated — without you lifting a finger.",
+    q: "What does DailyResume do?",
+    a: "DailyResume automatically refreshes your resume every day on job portals like Naukri and Indeed. You upload it once, connect your accounts, and we keep your profile marked as recently updated — without you lifting a finger.",
   },
   {
     q: "Why do we do it?",
-    a: "Job seekers waste hours every week logging into multiple portals just to click 'update' so their resume looks fresh. We built ResumePulse to remove that repetitive busywork so you can focus on interviews and real applications instead.",
+    a: "Job seekers waste hours every week logging into multiple portals just to click 'update' so their resume looks fresh. We built DailyResume to remove that repetitive busywork so you can focus on interviews and real applications instead.",
   },
   {
     q: "Why is it required?",
@@ -60,26 +60,27 @@ function Landing() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
 
-  // Map vertical wheel to horizontal scroll
+  // Only horizontal scroll (trackpad / shift+wheel / arrow keys) changes panels.
+  // Vertical scroll is preserved for content inside each panel.
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-      e.preventDefault();
-      el.scrollBy({ left: e.deltaY, behavior: "auto" });
-    };
     const onScroll = () => {
       const i = Math.round(el.scrollLeft / el.clientWidth);
       setActive(Math.max(0, Math.min(PANELS.length - 1, i)));
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight") el.scrollBy({ left: el.clientWidth, behavior: "smooth" });
+      if (e.key === "ArrowLeft") el.scrollBy({ left: -el.clientWidth, behavior: "smooth" });
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("keydown", onKey);
     return () => {
-      el.removeEventListener("wheel", onWheel);
       el.removeEventListener("scroll", onScroll);
+      window.removeEventListener("keydown", onKey);
     };
   }, []);
+
 
   const goTo = (i: number) => {
     const el = scrollerRef.current;
@@ -178,10 +179,19 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
             <span className="text-gradient-primary">every single day.</span>
           </h1>
           <p className="mt-6 max-w-xl text-lg text-muted-foreground">
-            Recruiters filter by recently updated profiles. ResumePulse keeps yours on top —
+            Recruiters filter by recently updated profiles. DailyResume keeps yours on top —
             automatically, across every job portal you use.
           </p>
-          <div className="mt-10 flex flex-wrap items-center gap-3">
+          <div className="mt-8 max-w-xl rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/8 via-primary/5 to-transparent p-4 ring-soft">
+            <div className="flex items-start gap-3">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <p className="text-sm leading-relaxed text-foreground/80">
+                <span className="font-semibold text-foreground">Land the package you actually deserve</span>
+                {" "}— by reaching the maximum number of recruiters, every single day.
+              </p>
+            </div>
+          </div>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
             <Button asChild size="lg" className="bg-gradient-primary shadow-glow">
               <Link to="/login">
                 Get Started <ArrowRight className="ml-2 h-4 w-4" />
@@ -191,6 +201,7 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
               See how it works →
             </Button>
           </div>
+
         </div>
         <div className="grid grid-cols-2 gap-4">
           <StatCard value="8:00 AM" label="Daily refresh, IST" />
@@ -301,7 +312,7 @@ function CtaPanel() {
           </div>
           <h2 className="mt-6 text-4xl tracking-tight sm:text-5xl">Stop chasing recruiters.</h2>
           <p className="mx-auto mt-4 max-w-lg text-muted-foreground">
-            Let ResumePulse keep your profile alive across every portal, every day.
+            Let DailyResume keep your profile alive across every portal, every day.
           </p>
           <Button asChild size="lg" className="mt-8 bg-gradient-primary shadow-glow">
             <Link to="/login">

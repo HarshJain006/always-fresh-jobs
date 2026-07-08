@@ -22,7 +22,7 @@ export async function findUserByGoogleId(googleId: string): Promise<User | null>
   // Reconstruct from persisted session if the module was hot-reloaded.
   if (typeof window !== "undefined") {
     try {
-      const raw = window.localStorage.getItem("resumepulse.session");
+      const raw = window.localStorage.getItem("dailyresume.session");
       if (raw) {
         const u = JSON.parse(raw) as User;
         if (u.google_user_id === googleId) {

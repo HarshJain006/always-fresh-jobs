@@ -10,8 +10,8 @@ import { Toaster } from "@/components/ui/sonner";
 export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
-      { title: "Sign in — ResumePulse" },
-      { name: "description", content: "Sign in to ResumePulse with Google to start your free 2-day trial." },
+      { title: "Sign in — DailyResume" },
+      { name: "description", content: "Sign in to DailyResume with Google to start your free 2-day trial." },
     ],
   }),
   component: LoginPage,
@@ -25,7 +25,7 @@ function LoginPage() {
     setLoading(true);
     try {
       await googleLogin();
-      toast.success("Welcome to ResumePulse!");
+      toast.success("Welcome to DailyResume!");
       navigate({ to: "/dashboard" });
     } catch (e) {
       toast.error("Sign-in failed. Try again.");
@@ -41,7 +41,7 @@ function LoginPage() {
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-primary text-primary-foreground shadow-glow">
             <Zap className="h-4 w-4" />
           </span>
-          <span className="text-lg tracking-tight">ResumePulse</span>
+          <span className="text-lg tracking-tight">DailyResume</span>
         </Link>
         <Card className="w-full border-border/60 bg-surface p-8 shadow-elegant">
           <h1 className="text-3xl">Welcome back</h1>

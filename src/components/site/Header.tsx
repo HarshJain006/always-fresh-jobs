@@ -10,7 +10,7 @@ export function Header() {
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-primary text-primary-foreground shadow-glow">
             <Zap className="h-4 w-4" />
           </span>
-          <span className="text-lg tracking-tight">ResumePulse</span>
+          <span className="text-lg tracking-tight">DailyResume</span>
         </Link>
         <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
           <a href="/#features" className="hover:text-foreground">Features</a>
