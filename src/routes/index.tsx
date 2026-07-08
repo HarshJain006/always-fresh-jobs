@@ -182,7 +182,16 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
             Recruiters filter by recently updated profiles. DailyResume keeps yours on top —
             automatically, across every job portal you use.
           </p>
-          <div className="mt-10 flex flex-wrap items-center gap-3">
+          <div className="mt-8 max-w-xl rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/8 via-primary/5 to-transparent p-4 ring-soft">
+            <div className="flex items-start gap-3">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <p className="text-sm leading-relaxed text-foreground/80">
+                <span className="font-semibold text-foreground">Land the package you actually deserve</span>
+                {" "}— by reaching the maximum number of recruiters, every single day.
+              </p>
+            </div>
+          </div>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
             <Button asChild size="lg" className="bg-gradient-primary shadow-glow">
               <Link to="/login">
                 Get Started <ArrowRight className="ml-2 h-4 w-4" />
@@ -192,6 +201,7 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
               See how it works →
             </Button>
           </div>
+
         </div>
         <div className="grid grid-cols-2 gap-4">
           <StatCard value="8:00 AM" label="Daily refresh, IST" />
