@@ -104,9 +104,7 @@ function Pricing() {
             </div>
             <ul className="mt-6 space-y-3 text-sm">
               <Row>Daily automatic resume updates</Row>
-              <Row>All supported platforms</Row>
               <Row>Priority refresh window</Row>
-              <Row>Email notifications</Row>
               <Row>Full activity history</Row>
             </ul>
             <Button
