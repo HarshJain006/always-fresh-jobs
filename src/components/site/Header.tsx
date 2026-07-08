@@ -1,8 +1,15 @@
 import { Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getCurrentUser, type AppUser } from "@/auth/googleAuth";
 
 export function Header() {
+  const [user, setUser] = useState<AppUser | null>(null);
+  useEffect(() => {
+    setUser(getCurrentUser());
+  }, []);
+
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
@@ -19,12 +26,20 @@ export function Header() {
           <Link to="/pricing" className="hover:text-foreground">Pricing</Link>
         </nav>
         <div className="flex items-center gap-2">
-          <Button asChild variant="ghost" size="sm">
-            <Link to="/login">Sign in</Link>
-          </Button>
-          <Button asChild size="sm" className="bg-gradient-primary shadow-glow">
-            <Link to="/login">Get Started</Link>
-          </Button>
+          {user ? (
+            <Button asChild size="sm" className="bg-gradient-primary shadow-glow">
+              <Link to="/dashboard">Dashboard</Link>
+            </Button>
+          ) : (
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/login">Sign in</Link>
+              </Button>
+              <Button asChild size="sm" className="bg-gradient-primary shadow-glow">
+                <Link to="/login">Get Started</Link>
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </header>
