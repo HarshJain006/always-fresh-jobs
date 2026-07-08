@@ -11,7 +11,7 @@ export function Footer() {
               <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-primary text-primary-foreground">
                 <Zap className="h-4 w-4" />
               </span>
-              <span className="text-lg tracking-tight">ResumePulse</span>
+              <span className="text-lg tracking-tight">DailyResume</span>
             </div>
             <p className="mt-3 max-w-sm text-sm text-muted-foreground">
               Automated resume refresh for job seekers. Stay active, get noticed by recruiters — every single day.
@@ -30,7 +30,7 @@ export function Footer() {
               <div className="mb-3 font-medium text-foreground">Company</div>
               <ul className="space-y-2 text-muted-foreground">
                 <li><a href="/#faq" className="hover:text-foreground">FAQ</a></li>
-                <li><a href="mailto:hello@resumepulse.app" className="hover:text-foreground">Contact</a></li>
+                <li><a href="mailto:hello@dailyresume.app" className="hover:text-foreground">Contact</a></li>
               </ul>
             </div>
             <div>
@@ -43,7 +43,7 @@ export function Footer() {
           </div>
         </div>
         <div className="mt-10 border-t border-border/60 pt-6 text-xs text-muted-foreground">
-          © {new Date().getFullYear()} ResumePulse. All rights reserved.
+          © {new Date().getFullYear()} DailyResume. All rights reserved.
         </div>
       </div>
     </footer>

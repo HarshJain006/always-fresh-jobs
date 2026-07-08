@@ -12,12 +12,12 @@ import { createUser, findUserByGoogleId, type User } from "@/database/users";
 
 export type AppUser = User;
 
-const STORAGE_KEY = "resumepulse.session";
+const STORAGE_KEY = "dailyresume.session";
 
 /** Mock Google identity for local development. */
 const MOCK_GOOGLE_PROFILE = {
   google_user_id: "google-oauth2|demo-user-001",
-  email: "demo@resumepulse.app",
+  email: "demo@dailyresume.app",
   name: "Demo User",
   profile_image: "https://ui-avatars.com/api/?name=Demo+User&background=6366f1&color=fff",
 };

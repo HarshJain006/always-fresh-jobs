@@ -77,14 +77,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "ResumePulse — Keep your resume active on every job portal, automatically" },
+      { title: "DailyResume — Keep your resume active on every job portal, automatically" },
       {
         name: "description",
         content:
-          "ResumePulse refreshes your resume on Naukri, Indeed and LinkedIn every day so recruiters see you first. Upload once, stay on top.",
+          "DailyResume refreshes your resume on Naukri, Indeed and LinkedIn every day so recruiters see you first. Upload once, stay on top.",
       },
-      { name: "author", content: "ResumePulse" },
-      { property: "og:title", content: "ResumePulse — Automated daily resume refresh" },
+      { name: "author", content: "DailyResume" },
+      { property: "og:title", content: "DailyResume — Automated daily resume refresh" },
       {
         property: "og:description",
         content:

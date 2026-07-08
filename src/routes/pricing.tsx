@@ -14,7 +14,7 @@ import { Toaster } from "@/components/ui/sonner";
 export const Route = createFileRoute("/pricing")({
   head: () => ({
     meta: [
-      { title: "Pricing — ResumePulse" },
+      { title: "Pricing — DailyResume" },
       { name: "description", content: "₹150/month for daily automated resume refresh across all supported job portals." },
     ],
   }),

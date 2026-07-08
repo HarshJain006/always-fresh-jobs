@@ -41,12 +41,12 @@ const PLATFORMS = [
 
 const FAQ = [
   {
-    q: "What does ResumePulse do?",
-    a: "ResumePulse automatically refreshes your resume every day on job portals like Naukri and Indeed. You upload it once, connect your accounts, and we keep your profile marked as recently updated — without you lifting a finger.",
+    q: "What does DailyResume do?",
+    a: "DailyResume automatically refreshes your resume every day on job portals like Naukri and Indeed. You upload it once, connect your accounts, and we keep your profile marked as recently updated — without you lifting a finger.",
   },
   {
     q: "Why do we do it?",
-    a: "Job seekers waste hours every week logging into multiple portals just to click 'update' so their resume looks fresh. We built ResumePulse to remove that repetitive busywork so you can focus on interviews and real applications instead.",
+    a: "Job seekers waste hours every week logging into multiple portals just to click 'update' so their resume looks fresh. We built DailyResume to remove that repetitive busywork so you can focus on interviews and real applications instead.",
   },
   {
     q: "Why is it required?",
@@ -178,7 +178,7 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
             <span className="text-gradient-primary">every single day.</span>
           </h1>
           <p className="mt-6 max-w-xl text-lg text-muted-foreground">
-            Recruiters filter by recently updated profiles. ResumePulse keeps yours on top —
+            Recruiters filter by recently updated profiles. DailyResume keeps yours on top —
             automatically, across every job portal you use.
           </p>
           <div className="mt-10 flex flex-wrap items-center gap-3">
@@ -301,7 +301,7 @@ function CtaPanel() {
           </div>
           <h2 className="mt-6 text-4xl tracking-tight sm:text-5xl">Stop chasing recruiters.</h2>
           <p className="mx-auto mt-4 max-w-lg text-muted-foreground">
-            Let ResumePulse keep your profile alive across every portal, every day.
+            Let DailyResume keep your profile alive across every portal, every day.
           </p>
           <Button asChild size="lg" className="mt-8 bg-gradient-primary shadow-glow">
             <Link to="/login">

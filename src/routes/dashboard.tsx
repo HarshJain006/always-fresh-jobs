@@ -27,7 +27,7 @@ import { Toaster } from "@/components/ui/sonner";
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
-      { title: "Dashboard — ResumePulse" },
+      { title: "Dashboard — DailyResume" },
       { name: "description", content: "Manage your resume, connected platforms and automation schedule." },
     ],
   }),
