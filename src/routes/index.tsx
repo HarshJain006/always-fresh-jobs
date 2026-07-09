@@ -182,8 +182,8 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
             Live · Refreshing profiles right now
           </div>
           <h1 className="mt-6 text-5xl leading-[1.02] tracking-tight sm:text-6xl md:text-7xl">
-            Get seen by recruiters,{" "}
-            <span className="text-gradient-primary">every single day.</span>
+            Your profile,{" "}
+            <span className="text-gradient-primary">refreshed daily.</span>
           </h1>
           <p className="mt-6 max-w-xl text-lg text-muted-foreground">
             Recruiters filter by recently updated profiles. DailyResume keeps yours on top —
