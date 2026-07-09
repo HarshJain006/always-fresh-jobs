@@ -147,6 +147,10 @@ function Dashboard() {
   }
 
   function handleResume() {
+    if (!allowed) {
+      toast.error("Upgrade to Premium (₹150/month) to resume automation.");
+      return;
+    }
     setState("running");
     toast.success("Automation resumed.");
   }
