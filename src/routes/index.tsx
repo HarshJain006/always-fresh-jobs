@@ -106,43 +106,43 @@ function Landing() {
           <Panel><CtaPanel /></Panel>
         </div>
 
-        {/* Nav arrows */}
-        <button
-          onClick={prev}
-          disabled={active === 0}
-          aria-label="Previous"
-          className="absolute left-4 top-1/2 z-20 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-border/60 bg-background/80 shadow-elegant backdrop-blur transition hover:scale-105 disabled:pointer-events-none disabled:opacity-0"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-        <button
-          onClick={next}
-          disabled={active === PANELS.length - 1}
-          aria-label="Next"
-          className="absolute right-4 top-1/2 z-20 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full border border-border/60 bg-background/80 shadow-elegant backdrop-blur transition hover:scale-105 disabled:pointer-events-none disabled:opacity-0"
-        >
-          <ArrowRight className="h-4 w-4" />
-        </button>
-
-        {/* Progress dots + label */}
-        <div className="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-4 rounded-full border border-border/60 bg-background/80 px-4 py-2 shadow-elegant backdrop-blur">
-          <span className="text-xs font-medium tabular-nums text-muted-foreground">
-            {String(active + 1).padStart(2, "0")} / {String(PANELS.length).padStart(2, "0")}
-          </span>
-          <span className="h-3 w-px bg-border" />
-          <div className="flex items-center gap-1.5">
-            {PANELS.map((p, i) => (
-              <button
-                key={p}
-                onClick={() => goTo(i)}
-                aria-label={p}
-                className={`h-1.5 rounded-full transition-all ${
-                  i === active ? "w-6 bg-primary" : "w-1.5 bg-border hover:bg-muted-foreground/40"
-                }`}
-              />
-            ))}
+        {/* Centered bottom control cluster: prev · dots · next */}
+        <div className="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border/60 bg-background/80 px-3 py-2 shadow-elegant backdrop-blur">
+          <button
+            onClick={prev}
+            disabled={active === 0}
+            aria-label="Previous"
+            className="grid h-9 w-9 place-items-center rounded-full border border-border/60 bg-background transition hover:scale-105 disabled:pointer-events-none disabled:opacity-30"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <div className="flex items-center gap-3 px-1">
+            <span className="text-xs font-medium tabular-nums text-muted-foreground">
+              {String(active + 1).padStart(2, "0")} / {String(PANELS.length).padStart(2, "0")}
+            </span>
+            <span className="h-3 w-px bg-border" />
+            <div className="flex items-center gap-1.5">
+              {PANELS.map((p, i) => (
+                <button
+                  key={p}
+                  onClick={() => goTo(i)}
+                  aria-label={p}
+                  className={`h-1.5 rounded-full transition-all ${
+                    i === active ? "w-6 bg-primary" : "w-1.5 bg-border hover:bg-muted-foreground/40"
+                  }`}
+                />
+              ))}
+            </div>
+            <span className="hidden text-xs font-medium text-foreground sm:inline">{PANELS[active]}</span>
           </div>
-          <span className="hidden text-xs font-medium text-foreground sm:inline">{PANELS[active]}</span>
+          <button
+            onClick={next}
+            disabled={active === PANELS.length - 1}
+            aria-label="Next"
+            className="grid h-9 w-9 place-items-center rounded-full bg-gradient-primary text-primary-foreground shadow-glow transition hover:scale-105 disabled:pointer-events-none disabled:opacity-30"
+          >
+            <ArrowRight className="h-4 w-4" />
+          </button>
         </div>
       </div>
     </div>
