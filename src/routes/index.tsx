@@ -91,7 +91,6 @@ function Landing() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      <Header />
 
       <div className="relative flex-1 overflow-hidden">
         <div
