@@ -76,6 +76,17 @@ function Dashboard() {
     setUser(u);
   }, [navigate]);
 
+  // Enforce access: as soon as the free trial ends (and there is no active
+  // monthly subscription), automation must stop. It can only run again after
+  // the user upgrades to Premium.
+  useEffect(() => {
+    if (!user) return;
+    if (!canUseAutomation(user) && state !== "idle") {
+      setState("idle");
+      toast.error("Your free trial ended. Upgrade to Premium (₹150/month) to resume automation.");
+    }
+  }, [user, state]);
+
   const anyConnected = platforms.some((p) => p.connected);
   const step1Done = !!resume;
   const step2Done = anyConnected;
@@ -136,6 +147,10 @@ function Dashboard() {
   }
 
   function handleResume() {
+    if (!allowed) {
+      toast.error("Upgrade to Premium (₹150/month) to resume automation.");
+      return;
+    }
     setState("running");
     toast.success("Automation resumed.");
   }
