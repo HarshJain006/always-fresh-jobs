@@ -91,16 +91,6 @@ function Landing() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      {/* Top center brand header */}
-      <div className="pointer-events-none absolute top-0 left-0 right-0 z-20 flex flex-col items-center pt-6">
-        <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/80 px-4 py-1.5 shadow-elegant backdrop-blur">
-          <span className="text-lg font-bold tracking-tight">DailyResume</span>
-        </div>
-        <p className="mt-2 text-sm font-medium text-muted-foreground whitespace-nowrap">
-          Get seen by recruiters, every single day.
-        </p>
-      </div>
-
       <div className="relative flex-1 overflow-hidden">
         <div
           ref={scrollerRef}
@@ -182,9 +172,11 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
             Live · Refreshing profiles right now
           </div>
           <h1 className="mt-6 text-5xl leading-[1.02] tracking-tight sm:text-6xl md:text-7xl">
-            Your profile,{" "}
-            <span className="text-gradient-primary">refreshed daily.</span>
+            DailyResume
           </h1>
+          <p className="mt-3 text-4xl leading-snug tracking-tight text-muted-foreground sm:text-5xl md:text-6xl">
+            Get seen by recruiters, every single day.
+          </p>
           <p className="mt-6 max-w-xl text-lg text-muted-foreground">
             Recruiters filter by recently updated profiles. DailyResume keeps yours on top —
             automatically, across every job portal you use.
