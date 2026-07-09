@@ -91,6 +91,7 @@ function Landing() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
+
       <div className="relative flex-1 overflow-hidden">
         <div
           ref={scrollerRef}
@@ -172,11 +173,9 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
             Live · Refreshing profiles right now
           </div>
           <h1 className="mt-6 text-5xl leading-[1.02] tracking-tight sm:text-6xl md:text-7xl">
-            DailyResume
+            Get seen by recruiters,{" "}
+            <span className="text-gradient-primary">every single day.</span>
           </h1>
-          <p className="mt-3 text-4xl leading-snug tracking-tight text-muted-foreground sm:text-5xl md:text-6xl">
-            Get seen by recruiters, every single day.
-          </p>
           <p className="mt-6 max-w-xl text-lg text-muted-foreground">
             Recruiters filter by recently updated profiles. DailyResume keeps yours on top —
             automatically, across every job portal you use.
