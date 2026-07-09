@@ -12,7 +12,6 @@ import {
   Zap,
   CheckCircle2,
 } from "lucide-react";
-import { Header } from "@/components/site/Header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
