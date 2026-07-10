@@ -74,6 +74,19 @@ function Dashboard() {
       return;
     }
     setUser(u);
+    // Prompt for upgrade the moment the 2-day free trial has ended.
+    if (u.subscription_status !== "active") {
+      const trialLeft = checkTrialStatus(u).daysRemaining;
+      if (trialLeft === 0) {
+        toast.error("Your 2-day free trial has ended. Upgrade to keep DailyResume running.", {
+          duration: 8000,
+          action: {
+            label: "Upgrade",
+            onClick: () => navigate({ to: "/pricing" }),
+          },
+        });
+      }
+    }
   }, [navigate]);
 
   const anyConnected = platforms.some((p) => p.connected);
