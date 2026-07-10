@@ -150,8 +150,8 @@ function Landing() {
 
 function Panel({ children }: { children: React.ReactNode }) {
   return (
-    <section className="relative flex h-full w-screen shrink-0 snap-center items-start overflow-y-auto sm:items-center">
-      <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-10 sm:px-12 sm:py-16">{children}</div>
+    <section className="relative flex h-full w-screen shrink-0 snap-center items-start overflow-y-auto pt-16 sm:pt-24">
+      <div className="mx-auto w-full max-w-6xl px-6 pb-28 pt-16 sm:px-12 sm:pb-32 sm:pt-24">{children}</div>
     </section>
   );
 }
