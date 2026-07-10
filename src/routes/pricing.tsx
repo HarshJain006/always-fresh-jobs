@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
 import { getCurrentUser, type AppUser } from "@/auth/googleAuth";
 import { checkTrialStatus } from "@/database/users";
