@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Header } from "@/components/site/Header";
+
 import { getCurrentUser, logoutUser, type AppUser } from "@/auth/googleAuth";
 import { checkTrialStatus } from "@/database/users";
 import { canUseAutomation } from "@/security/accessControl";
@@ -74,6 +74,19 @@ function Dashboard() {
       return;
     }
     setUser(u);
+    // Prompt for upgrade the moment the 2-day free trial has ended.
+    if (u.subscription_status !== "active") {
+      const trialLeft = checkTrialStatus(u).daysRemaining;
+      if (trialLeft === 0) {
+        toast.error("Your 2-day free trial has ended. Upgrade to keep DailyResume running.", {
+          duration: 8000,
+          action: {
+            label: "Upgrade",
+            onClick: () => navigate({ to: "/pricing" }),
+          },
+        });
+      }
+    }
   }, [navigate]);
 
   const anyConnected = platforms.some((p) => p.connected);
@@ -150,7 +163,7 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-background pb-16">
       <Toaster />
-      <Header />
+
 
       <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         {/* Greeting */}
