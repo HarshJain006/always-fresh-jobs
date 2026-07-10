@@ -154,8 +154,8 @@ function Landing() {
 
 function Panel({ children }: { children: React.ReactNode }) {
   return (
-    <section className="relative flex h-full w-screen shrink-0 snap-center items-start overflow-y-auto pt-16 sm:pt-24">
-      <div className="mx-auto w-full max-w-6xl px-6 pb-28 pt-16 sm:px-12 sm:pb-32 sm:pt-24">{children}</div>
+    <section className="relative flex h-full w-screen shrink-0 snap-center items-start overflow-y-auto pt-6 sm:pt-10">
+      <div className="mx-auto w-full max-w-6xl px-6 pb-28 sm:px-12 sm:pb-32">{children}</div>
     </section>
   );
 }
@@ -169,14 +169,7 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
       <div className="grid-pattern absolute -inset-24 -z-10" aria-hidden />
       <div className="grid items-center gap-12 lg:grid-cols-[1.15fr_1fr]">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-3.5 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-success" />
-            </span>
-            Live · Refreshing profiles right now
-          </div>
-          <h1 className="mt-8 text-5xl leading-[1.08] tracking-tight sm:text-6xl md:text-7xl">
+          <h1 className="text-5xl leading-[1.08] tracking-tight sm:text-6xl md:text-7xl">
             Get seen by recruiters,{" "}
             <span className="text-gradient-primary">every single day.</span>
           </h1>
@@ -185,13 +178,10 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
             automatically, across every job portal you use.
           </p>
           <div className="mt-8 max-w-xl rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/8 via-primary/5 to-transparent p-4 ring-soft">
-            <div className="flex items-start gap-3">
-              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <p className="text-sm leading-relaxed text-foreground/80">
-                <span className="font-semibold text-foreground">Land the package you actually deserve</span>
-                {" "}— by reaching the maximum number of recruiters, every single day.
-              </p>
-            </div>
+            <p className="text-sm leading-relaxed text-foreground/80">
+              <span className="font-semibold text-foreground">Land the package you actually deserve</span>
+              {" "}— by reaching the maximum number of recruiters, every single day.
+            </p>
           </div>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Button asChild size="lg" className="bg-gradient-primary shadow-glow">
@@ -203,7 +193,6 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
               See how it works →
             </Button>
           </div>
-
         </div>
         <div className="grid grid-cols-2 gap-4">
           <StatCard value="8:00 AM" label="Daily refresh, IST" />
@@ -212,6 +201,48 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
           <StatCard value="Daily" label="Recruiter visibility" />
         </div>
       </div>
+
+      {/* Social proof — real-world recruiter invites */}
+      <div className="mt-14 grid items-center gap-10 lg:grid-cols-[1fr_1.1fr]">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-primary backdrop-blur">
+            Real results
+          </div>
+          <h2 className="mt-4 text-3xl tracking-tight sm:text-4xl">
+            Invites land in your inbox — while you sleep.
+          </h2>
+          <p className="mt-4 max-w-lg text-muted-foreground">
+            Users who keep their profile fresh every day get contacted by recruiters
+            across Naukri, Indeed and LinkedIn — for roles they never even applied to.
+          </p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <TrustStat icon={Mail} value="3.2×" label="More recruiter messages" />
+            <TrustStat icon={Bell} value="5×" label="More profile views" />
+            <TrustStat icon={Star} value="4.8/5" label="User rating" />
+          </div>
+        </div>
+        <div className="relative">
+          <div className="absolute -inset-4 -z-10 rounded-3xl bg-gradient-to-br from-primary/15 via-primary/5 to-transparent blur-2xl" aria-hidden />
+          <img
+            src={recruiterInvites}
+            alt="Recruiter messages and interview invitations from Google, Microsoft and Amazon"
+            loading="lazy"
+            width={1600}
+            height={912}
+            className="w-full rounded-2xl border border-border/60 shadow-elegant"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrustStat({ icon: Icon, value, label }: { icon: typeof Mail; value: string; label: string }) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-background/70 p-4 backdrop-blur">
+      <Icon className="h-4 w-4 text-primary" />
+      <div className="mt-2 font-display text-xl font-bold tracking-tight">{value}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   );
 }
