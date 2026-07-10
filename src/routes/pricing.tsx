@@ -47,7 +47,6 @@ function Pricing() {
   return (
     <div className="min-h-screen bg-background">
       <Toaster />
-      <Header />
       <main className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
         <div className="text-center">
           <div className="text-xs font-semibold uppercase tracking-widest text-primary">Pricing</div>
