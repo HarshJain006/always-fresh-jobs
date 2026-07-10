@@ -172,7 +172,7 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
             </span>
             Live · Refreshing profiles right now
           </div>
-          <h1 className="mt-6 text-5xl leading-[1.02] tracking-tight sm:text-6xl md:text-7xl">
+          <h1 className="mt-8 text-5xl leading-[1.08] tracking-tight sm:text-6xl md:text-7xl">
             Get seen by recruiters,{" "}
             <span className="text-gradient-primary">every single day.</span>
           </h1>
