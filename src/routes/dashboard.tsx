@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Header } from "@/components/site/Header";
+
 import { getCurrentUser, logoutUser, type AppUser } from "@/auth/googleAuth";
 import { checkTrialStatus } from "@/database/users";
 import { canUseAutomation } from "@/security/accessControl";
@@ -150,7 +150,7 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-background pb-16">
       <Toaster />
-      <Header />
+
 
       <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         {/* Greeting */}
