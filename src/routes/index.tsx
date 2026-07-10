@@ -11,9 +11,13 @@ import {
   Sparkles,
   Zap,
   CheckCircle2,
+  Mail,
+  Bell,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import recruiterInvites from "@/assets/recruiter-invites.jpg";
 
 export const Route = createFileRoute("/")({ component: Landing });
 
