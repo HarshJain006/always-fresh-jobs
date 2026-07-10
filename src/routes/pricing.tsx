@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
 import { getCurrentUser, type AppUser } from "@/auth/googleAuth";
 import { checkTrialStatus } from "@/database/users";
@@ -48,7 +47,6 @@ function Pricing() {
   return (
     <div className="min-h-screen bg-background">
       <Toaster />
-      <Header />
       <main className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
         <div className="text-center">
           <div className="text-xs font-semibold uppercase tracking-widest text-primary">Pricing</div>
