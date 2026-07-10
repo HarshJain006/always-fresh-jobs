@@ -150,8 +150,8 @@ function Landing() {
 
 function Panel({ children }: { children: React.ReactNode }) {
   return (
-    <section className="relative flex h-full w-screen shrink-0 snap-center items-start overflow-y-auto sm:items-center">
-      <div className="mx-auto w-full max-w-6xl px-6 pb-24 pt-10 sm:px-12 sm:py-16">{children}</div>
+    <section className="relative flex h-full w-screen shrink-0 snap-center items-start overflow-y-auto pt-16 sm:pt-24">
+      <div className="mx-auto w-full max-w-6xl px-6 pb-28 pt-16 sm:px-12 sm:pb-32 sm:pt-24">{children}</div>
     </section>
   );
 }
@@ -172,7 +172,7 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
             </span>
             Live · Refreshing profiles right now
           </div>
-          <h1 className="mt-6 text-5xl leading-[1.02] tracking-tight sm:text-6xl md:text-7xl">
+          <h1 className="mt-8 text-5xl leading-[1.08] tracking-tight sm:text-6xl md:text-7xl">
             Get seen by recruiters,{" "}
             <span className="text-gradient-primary">every single day.</span>
           </h1>
