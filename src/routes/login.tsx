@@ -11,7 +11,7 @@ export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
       { title: "Sign in — DailyResume" },
-      { name: "description", content: "Sign in to DailyResume with Google to start your free 2-day trial." },
+      { name: "description", content: "Sign in to DailyResume with Google to start your free 3-day trial." },
     ],
   }),
   component: LoginPage,
@@ -46,7 +46,7 @@ function LoginPage() {
         <Card className="w-full border-border/60 bg-surface p-8 shadow-elegant">
           <h1 className="text-3xl">Welcome back</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in with Google to continue. New here? We'll start your 2-day free trial automatically.
+            Sign in with Google to continue. New here? We'll start your 3-day free trial automatically.
           </p>
           <Button
             onClick={handleGoogle}

@@ -10,7 +10,7 @@ import type { AccountStatus, SubscriptionStatus, User } from "./schemas";
 
 export type { User } from "./schemas";
 
-const TRIAL_DAYS = 2;
+const TRIAL_DAYS = 3;
 
 // In-memory store, seeded across a session by localStorage-backed auth.
 const users = new Map<string, User>();
