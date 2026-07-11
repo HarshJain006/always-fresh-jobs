@@ -52,7 +52,7 @@ function Pricing() {
           <div className="text-xs font-semibold uppercase tracking-widest text-primary">Pricing</div>
           <h1 className="mt-3 text-5xl">Stay visible for less than a coffee</h1>
           <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-            Start with a 2-day free trial. Upgrade to Premium for continuous daily automation across all your job portals.
+            Start with a 3-day free trial. Upgrade to Premium for continuous daily automation across all your job portals.
           </p>
         </div>
 
@@ -76,7 +76,7 @@ function Pricing() {
             <div className="text-sm font-medium text-muted-foreground">Free trial</div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-5xl">₹0</span>
-              <span className="text-muted-foreground">for 2 days</span>
+              <span className="text-muted-foreground">for 3 days</span>
             </div>
             <ul className="mt-6 space-y-3 text-sm">
               <Row>Upload one resume</Row>

@@ -18,6 +18,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import recruiterInvites from "@/assets/recruiter-invites.jpg";
+import panelFeatures from "@/assets/panel-features.jpg";
+import panelSteps from "@/assets/panel-steps.jpg";
+import panelPlatforms from "@/assets/panel-platforms.jpg";
+import panelFaq from "@/assets/panel-faq.jpg";
+import panelCta from "@/assets/panel-cta.jpg";
 
 export const Route = createFileRoute("/")({ component: Landing });
 
@@ -247,10 +252,27 @@ function TrustStat({ icon: Icon, value, label }: { icon: typeof Mail; value: str
   );
 }
 
+function PanelImage({ src, alt }: { src: string; alt: string }) {
+  return (
+    <div className="relative mx-auto mt-10 max-w-3xl">
+      <div className="absolute -inset-4 -z-10 rounded-3xl bg-gradient-to-br from-primary/15 via-primary/5 to-transparent blur-2xl" aria-hidden />
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        width={1200}
+        height={800}
+        className="w-full rounded-2xl border border-border/60 shadow-elegant"
+      />
+    </div>
+  );
+}
+
 function FeaturesPanel() {
   return (
     <div>
       <PanelHeader eyebrow="Features" title="Everything to stay visible" />
+      <PanelImage src={panelFeatures} alt="Icons representing DailyResume features" />
       <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-border/60 bg-border/60 sm:grid-cols-2 lg:grid-cols-3">
         {FEATURES.map((f) => (
           <div key={f.title} className="group bg-background p-7 transition-colors hover:bg-surface-muted/40">
@@ -270,6 +292,7 @@ function StepsPanel() {
   return (
     <div>
       <PanelHeader eyebrow="How it works" title="Set up in under 2 minutes" />
+      <PanelImage src={panelSteps} alt="Four-step onboarding: sign in, upload resume, connect portals, automate" />
       <div className="relative mt-14 grid gap-10 md:grid-cols-4 md:gap-6">
         <div className="pointer-events-none absolute left-0 right-0 top-6 hidden h-px bg-gradient-to-r from-transparent via-border to-transparent md:block" aria-hidden />
         {STEPS.map((s) => (
@@ -290,6 +313,7 @@ function PlatformsPanel() {
   return (
     <div className="mx-auto max-w-3xl">
       <PanelHeader eyebrow="Supported platforms" title="Currently supported" />
+      <PanelImage src={panelPlatforms} alt="Naukri and Indeed connected to a central resume" />
       <div className="mt-12 grid gap-4 sm:grid-cols-2">
         {PLATFORMS.map((p) => (
           <Card key={p.name} className="flex items-center justify-between border-border/60 p-5 transition hover:shadow-elegant">
@@ -318,6 +342,7 @@ function FaqPanel() {
   return (
     <div className="mx-auto max-w-4xl">
       <PanelHeader eyebrow="FAQ" title="Questions, answered" />
+      <PanelImage src={panelFaq} alt="Friendly support answering questions" />
       <div className="mt-12 grid gap-4 md:grid-cols-3">
         {FAQ.map((item, i) => (
           <Card key={i} className="border-border/60 p-6 shadow-elegant">
@@ -347,6 +372,14 @@ function CtaPanel() {
           <p className="mx-auto mt-4 max-w-lg text-muted-foreground">
             Let DailyResume keep your profile alive across every portal, every day.
           </p>
+          <img
+            src={panelCta}
+            alt="Rocket launching from a laptop, symbolizing career acceleration"
+            loading="lazy"
+            width={1200}
+            height={800}
+            className="mx-auto mt-8 w-full max-w-xl rounded-2xl border border-border/60 shadow-elegant"
+          />
           <Button asChild size="lg" className="mt-8 bg-gradient-primary shadow-glow">
             <Link to="/login">
               Get Started <ArrowRight className="ml-2 h-4 w-4" />
