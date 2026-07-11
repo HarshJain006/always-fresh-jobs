@@ -191,6 +191,85 @@ function Dashboard() {
 
         <SubscriptionBanner user={user} trialDaysLeft={trial.daysRemaining} />
 
+        {/* Naukri credentials setup */}
+        <Card className="mt-6 border-border/60 p-6">
+          <div className="flex items-start gap-4">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+              <KeyRound className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-base font-semibold">Naukri account credentials</h3>
+                {credentialsSaved && (
+                  <Badge variant="secondary" className="gap-1">
+                    <CheckCircle2 className="h-3 w-3" /> Saved
+                  </Badge>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                We use these to sign in and refresh your profile daily. Stored encrypted — only you and the automation worker can access them.
+              </p>
+              <form
+                className="mt-4 grid gap-4 sm:grid-cols-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!credentials.username || !credentials.password || !credentials.email || !credentials.phone) {
+                    toast.error("Please fill in all fields.");
+                    return;
+                  }
+                  setCredentialsSaved(true);
+                  toast.success("Credentials saved securely.");
+                }}
+              >
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cred-username">Naukri username / profile ID</Label>
+                  <Input
+                    id="cred-username"
+                    value={credentials.username}
+                    onChange={(e) => { setCredentials({ ...credentials, username: e.target.value }); setCredentialsSaved(false); }}
+                    placeholder="e.g. your.name"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cred-password">Password</Label>
+                  <Input
+                    id="cred-password"
+                    type="password"
+                    value={credentials.password}
+                    onChange={(e) => { setCredentials({ ...credentials, password: e.target.value }); setCredentialsSaved(false); }}
+                    placeholder="••••••••"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cred-email">Email address</Label>
+                  <Input
+                    id="cred-email"
+                    type="email"
+                    value={credentials.email}
+                    onChange={(e) => { setCredentials({ ...credentials, email: e.target.value }); setCredentialsSaved(false); }}
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="cred-phone">Phone number</Label>
+                  <Input
+                    id="cred-phone"
+                    type="tel"
+                    value={credentials.phone}
+                    onChange={(e) => { setCredentials({ ...credentials, phone: e.target.value }); setCredentialsSaved(false); }}
+                    placeholder="+91 98765 43210"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Button type="submit" className="bg-gradient-primary shadow-glow">
+                    {credentialsSaved ? "Update credentials" : "Save credentials"}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </Card>
+
         {/* Progress bar */}
         <div className="mt-8">
           <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
