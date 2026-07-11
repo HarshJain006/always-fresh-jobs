@@ -48,6 +48,13 @@ function Dashboard() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [resume, setResume] = useState<{ name: string; size: string } | null>(null);
   const [state, setState] = useState<AutomationState>("idle");
+  const [credentials, setCredentials] = useState({
+    username: "",
+    password: "",
+    email: "",
+    phone: "",
+  });
+  const [credentialsSaved, setCredentialsSaved] = useState(false);
   const [platforms, setPlatforms] = useState<Platform[]>([
     { id: "naukri", name: "Naukri", connected: false, last: null },
     { id: "indeed", name: "Indeed", connected: false, last: null },
