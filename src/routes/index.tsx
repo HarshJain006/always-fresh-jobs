@@ -18,6 +18,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import recruiterInvites from "@/assets/recruiter-invites.jpg";
+import panelFeatures from "@/assets/panel-features.jpg";
+import panelSteps from "@/assets/panel-steps.jpg";
+import panelPlatforms from "@/assets/panel-platforms.jpg";
+import panelFaq from "@/assets/panel-faq.jpg";
+import panelCta from "@/assets/panel-cta.jpg";
 
 export const Route = createFileRoute("/")({ component: Landing });
 
