@@ -3,13 +3,12 @@
 
 [build]
   command = "npm run build"
-  publish = "dist"
-  # TanStack Start + Nitro netlify preset emits browser assets to dist
-  # and server functions to .netlify/functions-internal.
+  publish = "dist/client"
+  # @netlify/vite-plugin-tanstack-start emits browser assets to dist/client
+  # and wires the SSR server entry into a Netlify Function automatically.
 
 [build.environment]
-  NODE_VERSION = "20"
-  NITRO_PRESET = "netlify"
+  NODE_VERSION = "22"
 
 # Optional: hit this from Netlify Scheduled Functions / external cron at 8 AM IST
 # Headers: x-cron-secret: <CRON_SECRET>
