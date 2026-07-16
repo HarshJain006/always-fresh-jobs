@@ -1,8 +1,5 @@
 /**
  * Razorpay integration with Standard Checkout.
- *
- * After a verified payment, call activateSubscription(userId, planId).
- * Expiry is stored on the user row and enforced server-side.
  */
 
 import { updateUser } from "@/database/users";
@@ -26,24 +23,38 @@ export interface RazorpayOrder {
 
 export async function createPayment(input: CreatePaymentInput): Promise<RazorpayOrder> {
   const keyId = process.env.RAZORPAY_KEY_ID;
-  if (!keyId) throw new Error("RAZORPAY_KEY_ID not configured");
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  
+  if (!keyId || !keySecret) {
+    throw new Error("RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET not configured");
+  }
 
   if (input.amountInPaise < 100) {
     throw new Error("Amount must be at least 100 paise");
   }
 
   try {
-    const Razorpay = require("razorpay");
-    const razorpay = new Razorpay({
-      key_id: keyId,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+    
+    const response = await fetch("https://api.razorpay.com/v1/orders", {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${auth}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        amount: input.amountInPaise,
+        currency: "INR",
+        receipt: `receipt_${input.userId}_${Date.now()}`,
+      }),
     });
 
-    const order = await razorpay.orders.create({
-      amount: input.amountInPaise,
-      currency: "INR",
-      receipt: `receipt_${input.userId}_${Date.now()}`,
-    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`Razorpay API error: ${error.description || error.message}`);
+    }
+
+    const order = await response.json();
 
     return {
       id: order.id,
@@ -53,6 +64,7 @@ export async function createPayment(input: CreatePaymentInput): Promise<Razorpay
       plan: input.plan,
     };
   } catch (error: any) {
+    console.error("[Razorpay Order Error]", error);
     throw new Error(`Failed to create Razorpay order: ${error.message}`);
   }
 }
@@ -63,7 +75,10 @@ export async function verifyPayment(payload: {
   razorpay_signature: string;
 }): Promise<boolean> {
   const secret = process.env.RAZORPAY_KEY_SECRET;
-  if (!secret) throw new Error("RAZORPAY_KEY_SECRET not configured");
+  if (!secret) {
+    console.error("RAZORPAY_KEY_SECRET not configured");
+    return false;
+  }
 
   try {
     const body = `${payload.razorpay_order_id}|${payload.razorpay_payment_id}`;
@@ -72,16 +87,24 @@ export async function verifyPayment(payload: {
       .update(body)
       .digest("hex");
 
-    return expectedSignature === payload.razorpay_signature;
+    const isValid = expectedSignature === payload.razorpay_signature;
+    
+    if (!isValid) {
+      console.error("[Signature Mismatch]", {
+        expected: expectedSignature,
+        received: payload.razorpay_signature,
+      });
+    }
+
+    return isValid;
   } catch (error: any) {
-    console.error("Signature verification error:", error);
+    console.error("[Signature Verification Error]", error);
     return false;
   }
 }
 
 /**
  * Mark premium after a verified payment.
- * Extends from now (or from current expire_at if still active — stack renewals).
  */
 export async function activateSubscription(userId: string, planId: PaidPlanId): Promise<void> {
   const plan = getPlan(planId);
@@ -114,11 +137,11 @@ export async function activateSubscription(userId: string, planId: PaidPlanId): 
     },
     { allowBillingFields: true },
   );
+  
   if (!updated) throw new Error("Could not activate subscription — user not found.");
 }
 
 export async function cancelSubscription(userId: string): Promise<void> {
-  // Access continues until subscription_expire_at; mark cancelled for display.
   const updated = await updateUser(
     userId,
     { subscription_status: "cancelled" },
