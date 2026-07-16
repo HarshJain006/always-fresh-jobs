@@ -22,6 +22,19 @@ export interface RazorpayOrder {
 }
 
 export async function createPayment(input: CreatePaymentInput): Promise<RazorpayOrder> {
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+  if (!keyId) {
+    console.error("[Razorpay] RAZORPAY_KEY_ID not configured");
+    throw new Error("RAZORPAY_KEY_ID not configured. Check Netlify environment variables.");
+  }
+
+  if (!keySecret) {
+    console.error("[Razorpay] RAZORPAY_KEY_SECRET not configured");
+    throw new Error("RAZORPAY_KEY_SECRET not configured. Check Netlify environment variables.");
+  }
+
   if (input.amountInPaise < 100) {
     throw new Error("Amount must be at least 100 paise");
   }
@@ -32,9 +45,6 @@ export async function createPayment(input: CreatePaymentInput): Promise<Razorpay
       (globalThis as any).fetch?.bind(globalThis) ??
       // dynamic import only if needed (no hard dependency)
       (await import("node-fetch")).default;
-
-    const keyId = process.env.RAZORPAY_KEY_ID!;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET!;
 
     const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
 
