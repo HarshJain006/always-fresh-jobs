@@ -61,6 +61,7 @@
     "node-cron": "^4.6.0",
     "pdf-lib": "^1.17.1",
     "playwright": "^1.61.1",
+    "razorpay": "^2.9.8",
     "react": "^19.2.0",
     "react-day-picker": "^9.14.0",
     "react-dom": "^19.2.0",
