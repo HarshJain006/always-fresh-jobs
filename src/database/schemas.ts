@@ -5,7 +5,12 @@
 
 export type SubscriptionStatus = "trial" | "active" | "expired" | "cancelled";
 export type AccountStatus = "active" | "suspended" | "deleted";
-export type SubscriptionPlan = "free_trial" | "premium_monthly";
+export type SubscriptionPlan =
+  | "free_trial"
+  | "premium_monthly" // legacy alias for 1 month
+  | "premium_1m"
+  | "premium_3m"
+  | "premium_6m";
 
 export interface User {
   id: string;

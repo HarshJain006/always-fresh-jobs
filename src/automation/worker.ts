@@ -1,59 +1,15 @@
 /**
- * Playwright worker.
- *
- * Design goals:
- *   - ONE Chromium instance for the entire process.
- *   - ONE isolated BrowserContext per user run — cheap to create, disposable.
- *   - Bounded concurrency so we don't hammer target portals.
- *
- * This module is server-only. Do not import it from React components.
+ * Automation worker — uses tested Selenium Naukri backend.
+ * Server/worker-only. Do not import from React components.
  */
 
-import { chromium, type Browser, type BrowserContext } from "playwright";
-import type { PlatformId } from "@/database/schemas";
-import { getAdapter } from "./platforms";
-import type { PlatformCredentials, RunContext } from "./platforms/types";
+import { runNaukriJob } from "./selenium/runNaukriJob";
 import { saveLog } from "./logs";
-
-let browserPromise: Promise<Browser> | null = null;
-
-async function getBrowser(): Promise<Browser> {
-  if (!browserPromise) {
-    browserPromise = chromium.launch({
-      headless: true,
-      args: ["--disable-dev-shm-usage", "--disable-gpu", "--disable-notifications"],
-    });
-  }
-  return browserPromise;
-}
-
-export async function shutdown(): Promise<void> {
-  if (!browserPromise) return;
-  const b = await browserPromise;
-  await b.close();
-  browserPromise = null;
-}
-
-async function withContext<T>(fn: (ctx: BrowserContext) => Promise<T>): Promise<T> {
-  const browser = await getBrowser();
-  const context = await browser.newContext({
-    viewport: { width: 1366, height: 900 },
-    userAgent:
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36",
-  });
-  try {
-    return await fn(context);
-  } finally {
-    await context.close().catch(() => {});
-  }
-}
-
-export interface UserRunInput {
-  userId: string;
-  platform: PlatformId;
-  resumePath: string;
-  credentials: PlatformCredentials;
-}
+import { getUserAutomation, saveUserAutomation } from "@/database/userAutomation";
+import { decryptData, isEncryptedSecret } from "@/security/encryption";
+import { getResumePath } from "@/storage/storage";
+import type { PlatformId } from "@/database/schemas";
+import { getAuthoritativeAccess } from "@/security/accessControl";
 
 export interface UserRunResult {
   userId: string;
@@ -63,53 +19,124 @@ export interface UserRunResult {
   durationMs: number;
 }
 
-export async function runPlatformForUser(input: UserRunInput): Promise<UserRunResult> {
-  const started = Date.now();
-  const adapter = getAdapter(input.platform);
-  const messages: string[] = [];
-  const run: RunContext = {
-    userId: input.userId,
-    resumePath: input.resumePath,
-    credentials: input.credentials,
-    logger: (m) => {
-      console.log(`[${input.userId} · ${adapter.name}] ${m}`);
-      messages.push(m);
-    },
-  };
-
-  try {
-    return await withContext(async (ctx) => {
-      const loggedIn = await adapter.login(ctx, run);
-      if (!loggedIn) throw new Error("login failed");
-      const uploaded = await adapter.uploadResume(ctx, run);
-      if (!uploaded) throw new Error("upload failed");
-      const verified = await adapter.verifyUpdate(ctx, run);
-      await adapter.logout(ctx, run);
-      const ok = verified;
-      const msg = ok ? `Resume updated on ${adapter.name}` : `Update could not be verified on ${adapter.name}`;
-      await saveLog({ userId: input.userId, platform: input.platform, ok, message: msg });
-      return { userId: input.userId, platform: input.platform, ok, message: msg, durationMs: Date.now() - started };
-    });
-  } catch (err) {
-    const message = `Failed on ${adapter.name}: ${String(err)}`;
-    await saveLog({ userId: input.userId, platform: input.platform, ok: false, message });
-    return { userId: input.userId, platform: input.platform, ok: false, message, durationMs: Date.now() - started };
-  }
+export interface RunOptions {
+  /** Defaults to true (SaaS). */
+  headless?: boolean;
+  updatePdf?: boolean;
 }
 
-/** Run many users with bounded concurrency, sharing one browser instance. */
-export async function runBatch(
-  inputs: UserRunInput[],
-  concurrency = 4,
-): Promise<UserRunResult[]> {
+export async function runPlatformForUser(
+  userId: string,
+  platform: PlatformId = "naukri",
+  options: RunOptions = {},
+): Promise<UserRunResult> {
+  const started = Date.now();
+
+  // Server-side subscription gate (cannot be bypassed via localStorage / UI)
+  try {
+    const access = await getAuthoritativeAccess(userId);
+    if (!access.allowed) {
+      const message =
+        access.reason === "suspended"
+          ? "Account suspended — automation blocked"
+          : "Free trial ended — upgrade required to run automation";
+      await saveLog({ userId, platform, ok: false, message });
+      return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Subscription check failed";
+    await saveLog({ userId, platform, ok: false, message });
+    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+  }
+
+  if (platform !== "naukri") {
+    const message = `${platform} is not available yet`;
+    await saveLog({ userId, platform, ok: false, message });
+    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+  }
+
+  const record = await getUserAutomation(userId);
+  if (!record.credentials) {
+    const message = "No Naukri credentials saved";
+    await saveLog({ userId, platform, ok: false, message });
+    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+  }
+
+  // Never trust DB-stored resume.path as a filesystem path (path traversal risk)
+  const resumePath = await getResumePath(userId);
+  if (!resumePath) {
+    const message = "No resume uploaded";
+    await saveLog({ userId, platform, ok: false, message });
+    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+  }
+
+  let password = record.credentials.password;
+  if (!isEncryptedSecret(password)) {
+    const message = "Stored password is not encrypted — re-save Naukri credentials.";
+    await saveLog({ userId, platform, ok: false, message });
+    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+  }
+  try {
+    password = await decryptData(password);
+  } catch {
+    const message = "Could not decrypt Naukri password — re-save credentials.";
+    await saveLog({ userId, platform, ok: false, message });
+    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+  }
+
+  const result = await runNaukriJob({
+    username: record.credentials.username || record.credentials.email,
+    password,
+    mobile: record.credentials.phone.replace(/\s+/g, ""),
+    resumePath,
+    headless: options.headless ?? true,
+    updatePdf: options.updatePdf ?? true,
+  });
+
+  await saveLog({
+    userId,
+    platform,
+    ok: result.ok,
+    message: result.message,
+  });
+
+  const platforms = record.platforms.map((p) =>
+    p.id === "naukri"
+      ? {
+          ...p,
+          last: result.ok ? new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : p.last,
+        }
+      : p,
+  );
+
+  await saveUserAutomation({
+    ...record,
+    platforms,
+    lastRunAt: new Date().toISOString(),
+  });
+
+  return {
+    userId,
+    platform,
+    ok: result.ok,
+    message: result.message,
+    durationMs: Date.now() - started,
+  };
+}
+
+export async function runBatch(userIds: string[], concurrency = 1): Promise<UserRunResult[]> {
   const results: UserRunResult[] = [];
   let cursor = 0;
-  const workers = Array.from({ length: Math.min(concurrency, inputs.length) }, async () => {
-    while (cursor < inputs.length) {
+  const workers = Array.from({ length: Math.min(concurrency, Math.max(userIds.length, 1)) }, async () => {
+    while (cursor < userIds.length) {
       const idx = cursor++;
-      results[idx] = await runPlatformForUser(inputs[idx]);
+      results[idx] = await runPlatformForUser(userIds[idx], "naukri");
     }
   });
   await Promise.all(workers);
   return results;
+}
+
+export async function shutdown(): Promise<void> {
+  // Selenium tears down per-run; nothing global to close.
 }

@@ -1,40 +1,32 @@
 /**
- * Daily scheduler.
- *
- * TODO: Hook into a real cron trigger (e.g. Cloudflare cron, pg_cron webhook,
- * or an external scheduler). For now this exposes callable functions.
+ * Daily scheduler helpers.
+ * Heavy Selenium work happens on the RPi via the Supabase job queue.
+ * Prefer enqueueDailyJobsForEligibleUsers from @/queue/enqueueDaily.
  */
 
-import type { User } from "@/database/schemas";
-import { canUseAutomation } from "@/security/accessControl";
-import { runBatch, type UserRunInput } from "@/automation/worker";
+export {
+  enqueueDailyJobsForEligibleUsers as runDailyUpdate,
+  enqueueDailyJobsForEligibleUsers,
+  isEightAmIstWindow,
+  isAfterEightAmIst,
+} from "@/queue/enqueueDaily";
 
-export async function getPendingUsers(): Promise<User[]> {
-  // TODO: Query DB for users whose (a) automation is active, (b) subscription/trial valid,
-  //       (c) last_run_at is older than 20 hours.
-  return [];
-}
-
-export async function processUserResume(user: User, jobs: UserRunInput[]): Promise<void> {
-  if (!canUseAutomation(user)) return;
-  await runBatch(jobs, 4);
-}
-
-export async function runDailyUpdate(): Promise<{ processed: number; failed: number }> {
-  const users = await getPendingUsers();
-  let processed = 0;
-  let failed = 0;
-
-  for (const user of users) {
+/** @deprecated — kept for older imports; now enqueues instead of running Selenium. */
+export async function getPendingUserIds(): Promise<string[]> {
+  const { listActiveAutomationUsers } = await import("@/database/userAutomation");
+  const { getAuthoritativeAccess } = await import("@/security/accessControl");
+  const active = await listActiveAutomationUsers();
+  const ids: string[] = [];
+  for (const u of active) {
+    if (!u.credentials || !u.resume) continue;
+    const naukri = u.platforms.find((p) => p.id === "naukri");
+    if (!naukri?.connected) continue;
     try {
-      // TODO: Assemble UserRunInput[] for the user's connected platforms with decrypted creds.
-      await processUserResume(user, []);
-      processed++;
-    } catch (err) {
-      console.error(`Daily update failed for ${user.id}`, err);
-      failed++;
+      const access = await getAuthoritativeAccess(u.userId);
+      if (access.allowed) ids.push(u.userId);
+    } catch {
+      /* skip */
     }
   }
-
-  return { processed, failed };
+  return ids;
 }

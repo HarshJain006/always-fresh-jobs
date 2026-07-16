@@ -1,5 +1,6 @@
 {
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "eslint.config.js"],
+  "exclude": ["src/app/**", "src/lib/naukri.ts", "src/components/Login.tsx", "src/components/NaukriForm.tsx"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",

@@ -2,12 +2,24 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getCurrentUser, type AppUser } from "@/auth/googleAuth";
+import { getCurrentUser, AUTH_CHANGE_EVENT, STORAGE_KEY, type AppUser } from "@/auth/googleAuth";
 
 export function Header() {
   const [user, setUser] = useState<AppUser | null>(null);
   useEffect(() => {
-    setUser(getCurrentUser());
+    const sync = () => setUser(getCurrentUser());
+    sync();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY || e.key === null) sync();
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(AUTH_CHANGE_EVENT, sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(AUTH_CHANGE_EVENT, sync);
+      window.removeEventListener("focus", sync);
+    };
   }, []);
 
   return (

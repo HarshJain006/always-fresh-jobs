@@ -17,7 +17,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { getCurrentUser, AUTH_CHANGE_EVENT, STORAGE_KEY, type AppUser } from "@/auth/googleAuth";
 import recruiterInvites from "@/assets/recruiter-invites.jpg";
+import heroImage from "@/assets/image.png";
 import panelFeatures from "@/assets/panel-features.jpg";
 import panelSteps from "@/assets/panel-steps.jpg";
 import panelPlatforms from "@/assets/panel-platforms.jpg";
@@ -25,6 +27,27 @@ import panelFaq from "@/assets/panel-faq.jpg";
 import panelCta from "@/assets/panel-cta.jpg";
 
 export const Route = createFileRoute("/")({ component: Landing });
+
+/** Reflects localStorage session; clears when the user logs out. */
+function useAuthUser() {
+  const [user, setUser] = useState<AppUser | null>(null);
+  useEffect(() => {
+    const sync = () => setUser(getCurrentUser());
+    sync();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY || e.key === null) sync();
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(AUTH_CHANGE_EVENT, sync);
+    window.addEventListener("focus", sync);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(AUTH_CHANGE_EVENT, sync);
+      window.removeEventListener("focus", sync);
+    };
+  }, []);
+  return user;
+}
 
 const FEATURES = [
   { icon: Upload, title: "Upload once", desc: "Add your resume a single time. We securely store and reuse it." },
@@ -44,7 +67,7 @@ const STEPS = [
 
 const PLATFORMS = [
   { name: "Naukri", status: "Live", desc: "India's largest job portal" },
-  { name: "Indeed", status: "Live", desc: "Global job search platform" },
+  { name: "Indeed", status: "Coming soon", desc: "Global job search platform" },
 ];
 
 const FAQ = [
@@ -67,6 +90,7 @@ const PANELS = ["Intro", "Features", "How it works", "Platforms", "FAQ", "Start"
 function Landing() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
+  const user = useAuthUser();
 
   // Only horizontal scroll (trackpad / shift+wheel / arrow keys) changes panels.
   // Vertical scroll is preserved for content inside each panel.
@@ -106,12 +130,12 @@ function Landing() {
           ref={scrollerRef}
           className="flex h-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          <Panel><IntroPanel onStart={next} /></Panel>
+          <Panel><IntroPanel onStart={next} signedIn={!!user} /></Panel>
           <Panel><FeaturesPanel /></Panel>
           <Panel><StepsPanel /></Panel>
           <Panel><PlatformsPanel /></Panel>
           <Panel><FaqPanel /></Panel>
-          <Panel><CtaPanel /></Panel>
+          <Panel><CtaPanel signedIn={!!user} /></Panel>
         </div>
 
         {/* Centered bottom control cluster: prev · dots · next */}
@@ -167,7 +191,7 @@ function Panel({ children }: { children: React.ReactNode }) {
 
 /* -------- Panels -------- */
 
-function IntroPanel({ onStart }: { onStart: () => void }) {
+function IntroPanel({ onStart, signedIn }: { onStart: () => void; signedIn: boolean }) {
   return (
     <div className="relative">
       <div className="hero-bg absolute -inset-24 -z-10" aria-hidden />
@@ -189,21 +213,44 @@ function IntroPanel({ onStart }: { onStart: () => void }) {
             </p>
           </div>
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Button asChild size="lg" className="bg-gradient-primary shadow-glow">
-              <Link to="/login">
-                Get Started <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
+            {signedIn ? (
+              <Button asChild size="lg" className="bg-gradient-primary shadow-glow">
+                <Link to="/dashboard">
+                  Go to Dashboard <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            ) : (
+              <Button asChild size="lg" className="bg-gradient-primary shadow-glow">
+                <Link to="/login">
+                  Get Started <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            )}
             <Button size="lg" variant="ghost" onClick={onStart}>
               See how it works →
             </Button>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <StatCard value="8:00 AM" label="Daily refresh, IST" />
-          <StatCard value="2 min" label="One-time setup" />
-          <StatCard value="100%" label="Hands-off" />
-          <StatCard value="Daily" label="Recruiter visibility" />
+        <div className="flex flex-col gap-6">
+          <div className="relative">
+            <div
+              className="absolute -inset-4 -z-10 rounded-3xl bg-gradient-to-br from-primary/15 via-primary/5 to-transparent blur-2xl"
+              aria-hidden
+            />
+            <img
+              src={heroImage}
+              alt="Recruiters reviewing a resume"
+              width={720}
+              height={480}
+              className="w-full h-auto object-contain"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <StatCard value="8:00 AM" label="Daily refresh, IST" />
+            <StatCard value="2 min" label="One-time setup" />
+            <StatCard value="100%" label="Hands-off" />
+            <StatCard value="Daily" label="Recruiter visibility" />
+          </div>
         </div>
       </div>
 
@@ -315,23 +362,35 @@ function PlatformsPanel() {
       <PanelHeader eyebrow="Supported platforms" title="Currently supported" />
       <PanelImage src={panelPlatforms} alt="Naukri and Indeed connected to a central resume" />
       <div className="mt-12 grid gap-4 sm:grid-cols-2">
-        {PLATFORMS.map((p) => (
-          <Card key={p.name} className="flex items-center justify-between border-border/60 p-5 transition hover:shadow-elegant">
-            <div className="flex items-center gap-4">
-              <div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-secondary to-background font-semibold text-secondary-foreground ring-soft">
-                {p.name[0]}
+        {PLATFORMS.map((p) => {
+          const live = p.status === "Live";
+          return (
+            <Card
+              key={p.name}
+              className={`flex items-center justify-between border-border/60 p-5 transition hover:shadow-elegant ${live ? "" : "opacity-60"}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-secondary to-background font-semibold text-secondary-foreground ring-soft">
+                  {p.name[0]}
+                </div>
+                <div>
+                  <div className="font-semibold">{p.name}</div>
+                  <div className="text-xs text-muted-foreground">{p.desc}</div>
+                </div>
               </div>
-              <div>
-                <div className="font-semibold">{p.name}</div>
-                <div className="text-xs text-muted-foreground">{p.desc}</div>
-              </div>
-            </div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/12 px-2.5 py-1 text-xs font-medium text-success">
-              <CheckCircle2 className="h-3 w-3" />
-              {p.status}
-            </span>
-          </Card>
-        ))}
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                  live
+                    ? "bg-success/12 text-success"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {live && <CheckCircle2 className="h-3 w-3" />}
+                {p.status}
+              </span>
+            </Card>
+          );
+        })}
       </div>
       <p className="mt-6 text-center text-sm text-muted-foreground">More platforms coming soon.</p>
     </div>
@@ -358,7 +417,7 @@ function FaqPanel() {
   );
 }
 
-function CtaPanel() {
+function CtaPanel({ signedIn }: { signedIn: boolean }) {
   return (
     <div className="relative">
       <Card className="relative overflow-hidden border-border/60 p-14 text-center shadow-elegant">
@@ -381,8 +440,12 @@ function CtaPanel() {
             className="mx-auto mt-8 w-full max-w-xl rounded-2xl border border-border/60 shadow-elegant"
           />
           <Button asChild size="lg" className="mt-8 bg-gradient-primary shadow-glow">
-            <Link to="/login">
-              Get Started <ArrowRight className="ml-2 h-4 w-4" />
+            <Link to={signedIn ? "/dashboard" : "/login"}>
+              {signedIn ? (
+                <>Go to Dashboard <ArrowRight className="ml-2 h-4 w-4" /></>
+              ) : (
+                <>Get Started <ArrowRight className="ml-2 h-4 w-4" /></>
+              )}
             </Link>
           </Button>
         </div>

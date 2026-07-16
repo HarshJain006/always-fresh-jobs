@@ -1,0 +1,24 @@
+# Netlify hosts the frontend + light server functions (enqueue only — no Chrome/Selenium).
+# Selenium runs on the Raspberry Pi via `npm run worker`.
+
+[build]
+  command = "npm run build"
+  publish = ".output/public"
+  # Static browser assets. Server functions need NITRO_PRESET=netlify (see env below).
+
+[build.environment]
+  NODE_VERSION = "22"
+  NITRO_PRESET = "netlify"
+
+
+# SPA / SSR fallback for client routes
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  conditions = {Role = ["none"]}
+  # If your Nitro Netlify preset handles redirects, remove or adjust this block.
+
+# Optional: hit this from Netlify Scheduled Functions / external cron at 8 AM IST
+# Headers: x-cron-secret: <CRON_SECRET>
+# /api/cron/daily-refresh — only enqueues jobs into Supabase
