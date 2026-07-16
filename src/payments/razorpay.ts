@@ -41,10 +41,7 @@ export async function createPayment(input: CreatePaymentInput): Promise<Razorpay
 
   try {
     // <-- replaced network call with robust fetch implementation -->
-    const fetchImpl: typeof fetch =
-      (globalThis as any).fetch?.bind(globalThis) ??
-      // dynamic import only if needed (no hard dependency)
-      (await import("node-fetch")).default;
+    const fetchImpl = fetch;
 
     const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
 
