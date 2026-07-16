@@ -22,24 +22,26 @@ export interface RazorpayOrder {
 }
 
 export async function createPayment(input: CreatePaymentInput): Promise<RazorpayOrder> {
-  const keyId = process.env.RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
-  
-  if (!keyId || !keySecret) {
-    throw new Error("RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET not configured");
-  }
-
   if (input.amountInPaise < 100) {
     throw new Error("Amount must be at least 100 paise");
   }
 
   try {
+    // <-- replaced network call with robust fetch implementation -->
+    const fetchImpl: typeof fetch =
+      (globalThis as any).fetch?.bind(globalThis) ??
+      // dynamic import only if needed (no hard dependency)
+      (await import("node-fetch")).default;
+
+    const keyId = process.env.RAZORPAY_KEY_ID!;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET!;
+
     const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
-    
-    const response = await fetch("https://api.razorpay.com/v1/orders", {
+
+    const response = await fetchImpl("https://api.razorpay.com/v1/orders", {
       method: "POST",
       headers: {
-        "Authorization": `Basic ${auth}`,
+        Authorization: `Basic ${auth}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -50,8 +52,14 @@ export async function createPayment(input: CreatePaymentInput): Promise<Razorpay
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(`Razorpay API error: ${error.description || error.message}`);
+      let errBody: any = {};
+      try { errBody = await response.json(); } catch { /* ignore parse errors */ }
+      const msg =
+        errBody?.error?.description ||
+        errBody?.description ||
+        errBody?.message ||
+        `status ${response.status}`;
+      throw new Error(`Razorpay API error: ${msg}`);
     }
 
     const order = await response.json();
@@ -64,8 +72,8 @@ export async function createPayment(input: CreatePaymentInput): Promise<Razorpay
       plan: input.plan,
     };
   } catch (error: any) {
-    console.error("[Razorpay Order Error]", error);
-    throw new Error(`Failed to create Razorpay order: ${error.message}`);
+    console.error("[Razorpay createPayment] error:", error?.stack || error);
+    throw new Error(`Failed to create Razorpay order: ${error?.message || "unknown error"}`);
   }
 }
 
