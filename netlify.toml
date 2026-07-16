@@ -8,7 +8,7 @@
   # and server functions to .netlify/functions-internal.
 
 [build.environment]
-  NODE_VERSION = "22"
+  NODE_VERSION = "20"
   NITRO_PRESET = "netlify"
 
 # Optional: hit this from Netlify Scheduled Functions / external cron at 8 AM IST
