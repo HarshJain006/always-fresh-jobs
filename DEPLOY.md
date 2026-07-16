@@ -36,7 +36,7 @@ Confirm table `automation_jobs` exists and RPCs:
 2. [Netlify](https://app.netlify.com/) → Add new site → Import from Git.
 3. Build settings:
    - **Build command:** `npm run build`
-   - **Publish directory:** `.output/public`
+   - **Publish directory:** `dist`
 4. Domain: add `dailyresume.in` (and `www`) under Domain management.  
    **Full guide (build → upload → domain):** [DOMAIN_SETUP.md](./DOMAIN_SETUP.md)
 5. Environment variables (Site settings → Environment):

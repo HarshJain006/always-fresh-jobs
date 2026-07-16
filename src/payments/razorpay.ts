@@ -1,5 +1,5 @@
 /**
- * Razorpay integration (placeholder) + subscription activation.
+ * Razorpay integration with Standard Checkout.
  *
  * After a verified payment, call activateSubscription(userId, planId).
  * Expiry is stored on the user row and enforced server-side.
@@ -8,6 +8,7 @@
 import { updateUser } from "@/database/users";
 import { addMonths, getPlan, type PaidPlanId } from "@/payments/plans";
 import type { SubscriptionPlan } from "@/database/schemas";
+import crypto from "crypto";
 
 export interface CreatePaymentInput {
   userId: string;
@@ -23,18 +24,59 @@ export interface RazorpayOrder {
   plan: PaidPlanId;
 }
 
-export async function createPayment(_input: CreatePaymentInput): Promise<RazorpayOrder> {
-  // TODO: Call Razorpay `orders.create` from the server and return the order.
-  throw new Error("Razorpay not configured yet");
+export async function createPayment(input: CreatePaymentInput): Promise<RazorpayOrder> {
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  if (!keyId) throw new Error("RAZORPAY_KEY_ID not configured");
+
+  if (input.amountInPaise < 100) {
+    throw new Error("Amount must be at least 100 paise");
+  }
+
+  try {
+    const Razorpay = require("razorpay");
+    const razorpay = new Razorpay({
+      key_id: keyId,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+
+    const order = await razorpay.orders.create({
+      amount: input.amountInPaise,
+      currency: "INR",
+      receipt: `receipt_${input.userId}_${Date.now()}`,
+    });
+
+    return {
+      id: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      keyId,
+      plan: input.plan,
+    };
+  } catch (error: any) {
+    throw new Error(`Failed to create Razorpay order: ${error.message}`);
+  }
 }
 
-export async function verifyPayment(_payload: {
+export async function verifyPayment(payload: {
   razorpay_order_id: string;
   razorpay_payment_id: string;
   razorpay_signature: string;
 }): Promise<boolean> {
-  // TODO: HMAC-SHA256 verification with RAZORPAY_KEY_SECRET.
-  return false;
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  if (!secret) throw new Error("RAZORPAY_KEY_SECRET not configured");
+
+  try {
+    const body = `${payload.razorpay_order_id}|${payload.razorpay_payment_id}`;
+    const expectedSignature = crypto
+      .createHmac("sha256", secret)
+      .update(body)
+      .digest("hex");
+
+    return expectedSignature === payload.razorpay_signature;
+  } catch (error: any) {
+    console.error("Signature verification error:", error);
+    return false;
+  }
 }
 
 /**

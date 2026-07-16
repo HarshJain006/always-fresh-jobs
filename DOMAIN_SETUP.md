@@ -21,25 +21,23 @@ After a successful build you get:
 
 ```text
 always-fresh-jobs/
-└── .output/
-    ├── public/          ← static files Netlify serves to browsers
-    │   ├── assets/      ← JS, CSS, images
-    │   ├── google-callback.html   ← REQUIRED for Google sign-in
-    │   ├── favicon.ico
-    │   ├── robots.txt
-    │   └── _headers
-    └── server/          ← SSR / server functions (not a simple “upload folder”)
+├── dist/                        ← static files Netlify serves to browsers
+│   ├── assets/                  ← JS, CSS, images
+│   ├── google-callback.html     ← REQUIRED for Google sign-in
+│   ├── favicon.ico
+│   └── robots.txt
+└── .netlify/functions-internal/ ← generated server functions for SSR/server actions
 ```
 
 | Path | Upload / use on Netlify? | Why |
 |------|---------------------------|-----|
-| `.output/public/**` | **Yes** — this is the browser site | HTML assets, OAuth callback, CSS/JS |
-| `.output/public/google-callback.html` | **Must be present** | Google redirect URI ends here |
-| `.output/public/assets/**` | **Yes** | App UI code and images |
-| `.output/server/**` | Do **not** drag-drop alone | Needs Netlify Functions / Nitro Netlify preset (use Git deploy) |
+| `dist/**` | **Yes** — this is the browser site | HTML assets, OAuth callback, CSS/JS |
+| `dist/google-callback.html` | **Must be present** | Google redirect URI ends here |
+| `dist/assets/**` | **Yes** | App UI code and images |
+| `.netlify/functions-internal/**` | Do **not** drag-drop alone | Generated Netlify Functions for SSR/server actions |
 | `src/`, `node_modules/`, `.env` | **Never** upload secrets or source via drag-drop | Env vars go in Netlify UI |
 
-> Default `npm run build` uses Nitro’s **Cloudflare** target (from Lovable). For Netlify with working dashboard server functions, prefer **Git connected to Netlify** (Option A below) so Netlify runs the build with a Netlify-compatible preset.
+> `npm run build` already targets Netlify via `NITRO_PRESET=netlify`.
 
 ---
 
@@ -58,7 +56,7 @@ You do **not** manually zip/upload files. Netlify clones the repo and runs the b
    |---------|--------|
    | **Base directory** | `always-fresh-jobs` (if the repo root is `DailyResume`) — or leave blank if the repo **is** the app folder |
    | **Build command** | `npm run build` |
-   | **Publish directory** | `.output/public` |
+   | **Publish directory** | `dist` |
    | **Node version** | `22` (set in `netlify.toml` or env `NODE_VERSION=22`) |
 
 5. The repo already has `netlify.toml` with those defaults — confirm Netlify picked them up.
@@ -88,11 +86,11 @@ You do **not** manually zip/upload files. Netlify clones the repo and runs the b
 **Files Netlify uses from the build (automatic):**
 
 ```text
-.output/public/assets/*
-.output/public/google-callback.html
-.output/public/favicon.ico
-.output/public/robots.txt
-(+ Netlify Functions generated from .output/server when NITRO_PRESET=netlify)
+dist/assets/*
+dist/google-callback.html
+dist/favicon.ico
+dist/robots.txt
+(+ Netlify Functions generated in .netlify/functions-internal)
 ```
 
 ---
@@ -112,10 +110,10 @@ Use this only for a quick static peek. **Dashboard “Run now” / save / queue 
 2. Open the folder:
 
    ```text
-   always-fresh-jobs/.output/public
+   always-fresh-jobs/dist
    ```
 
-3. Netlify → **Add new site** → **Deploy manually** → drag **the contents** of `.output/public` (not the outer `.output` folder).
+3. Netlify → **Add new site** → **Deploy manually** → drag **the contents** of `dist`.
 
    Upload **these**:
 
