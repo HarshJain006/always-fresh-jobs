@@ -1,11 +1,12 @@
 /**
- * Per-user automation state — Supabase-backed with local .data fallback.
+ * Per-user automation state — Supabase-backed with optional local .data fallback (dev/Pi only).
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PlatformId } from "./schemas";
-import { getSupabaseServer, isSupabaseConfigured } from "@/lib/supabase";
+import { canUseLocalFilesystem } from "@/lib/runtime";
+import { getSupabaseServer, isSupabaseServerConfigured } from "@/lib/supabase";
 
 export type AutomationStatus = "idle" | "running" | "paused";
 
@@ -38,6 +39,9 @@ function filePath(userId: string): string {
 }
 
 function ensureDir() {
+  if (!canUseLocalFilesystem()) {
+    throw new Error("Local automation storage is unavailable in this environment.");
+  }
   fs.mkdirSync(STORE_DIR, { recursive: true });
 }
 
@@ -101,24 +105,29 @@ function writeLocal(record: UserAutomationRecord): UserAutomationRecord {
 }
 
 export async function getUserAutomation(userId: string): Promise<UserAutomationRecord> {
-  if (isSupabaseConfigured()) {
-    try {
-      const { data, error } = await getSupabaseServer()
-        .from("user_automation")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
-      if (error) throw error;
-      if (data) return rowToRecord(data);
-      const empty = defaultRecord(userId);
-      await getSupabaseServer()
-        .from("user_automation")
-        .upsert(recordToRow(empty), { onConflict: "user_id" });
-      return empty;
-    } catch (err) {
-      console.error("getUserAutomation (supabase):", err);
-    }
+  if (isSupabaseServerConfigured()) {
+    const { data, error } = await getSupabaseServer()
+      .from("user_automation")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return rowToRecord(data);
+
+    const empty = defaultRecord(userId);
+    const { error: upsertErr } = await getSupabaseServer()
+      .from("user_automation")
+      .upsert(recordToRow(empty), { onConflict: "user_id" });
+    if (upsertErr) throw upsertErr;
+    return empty;
   }
+
+  if (!canUseLocalFilesystem()) {
+    throw new Error(
+      "Database is not configured. Set SUPABASE_SERVICE_ROLE_KEY on Netlify.",
+    );
+  }
+
   return readLocal(userId);
 }
 
@@ -127,37 +136,36 @@ export async function saveUserAutomation(
 ): Promise<UserAutomationRecord> {
   record.updatedAt = new Date().toISOString();
 
-  if (isSupabaseConfigured()) {
-    try {
-      const { data, error } = await getSupabaseServer()
-        .from("user_automation")
-        .upsert(recordToRow(record), { onConflict: "user_id" })
-        .select("*")
-        .single();
-      if (error) throw error;
-      writeLocal(record);
-      return rowToRecord(data);
-    } catch (err) {
-      console.error("saveUserAutomation (supabase):", err);
-    }
+  if (isSupabaseServerConfigured()) {
+    const { data, error } = await getSupabaseServer()
+      .from("user_automation")
+      .upsert(recordToRow(record), { onConflict: "user_id" })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return rowToRecord(data);
+  }
+
+  if (!canUseLocalFilesystem()) {
+    throw new Error(
+      "Database is not configured. Set SUPABASE_SERVICE_ROLE_KEY on Netlify.",
+    );
   }
 
   return writeLocal(record);
 }
 
 export async function listActiveAutomationUsers(): Promise<UserAutomationRecord[]> {
-  if (isSupabaseConfigured()) {
-    try {
-      const { data, error } = await getSupabaseServer()
-        .from("user_automation")
-        .select("*")
-        .eq("automation_state", "running");
-      if (error) throw error;
-      return (data ?? []).map((row) => rowToRecord(row));
-    } catch (err) {
-      console.error("listActiveAutomationUsers (supabase):", err);
-    }
+  if (isSupabaseServerConfigured()) {
+    const { data, error } = await getSupabaseServer()
+      .from("user_automation")
+      .select("*")
+      .eq("automation_state", "running");
+    if (error) throw error;
+    return (data ?? []).map((row) => rowToRecord(row));
   }
+
+  if (!canUseLocalFilesystem()) return [];
 
   ensureDir();
   const files = fs.readdirSync(STORE_DIR).filter((f) => f.endsWith(".json"));

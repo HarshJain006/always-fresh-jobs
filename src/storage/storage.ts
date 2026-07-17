@@ -3,12 +3,14 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   formatSupabaseError,
   getSupabaseServer,
-  isSupabaseConfigured,
+  isSupabaseServerConfigured,
 } from "@/lib/supabase";
+import { canUseLocalFilesystem } from "@/lib/runtime";
 import { compressPdfBuffer } from "./compressPdf";
 
 export interface StoredFile {
@@ -26,7 +28,10 @@ const BUCKET = "resumes";
 const LATEST_OBJECT = "latest.pdf";
 
 function userDir(userId: string): string {
-  return path.join(process.cwd(), ".data", "resumes", userId);
+  const base = canUseLocalFilesystem()
+    ? path.join(process.cwd(), ".data", "resumes", userId)
+    : path.join(os.tmpdir(), "dailyresume", "resumes", userId);
+  return base;
 }
 
 function latestStoragePath(userId: string): string {
@@ -106,9 +111,14 @@ export async function uploadResume(
 
   const { buffer, originalBytes, storedBytes, compressed } = await compressPdfBuffer(raw);
   const storagePath = latestStoragePath(userId);
-  const latestPath = writeLocalLatest(userId, buffer);
 
-  if (!isSupabaseConfigured()) {
+  if (!isSupabaseServerConfigured()) {
+    if (!canUseLocalFilesystem()) {
+      throw new Error(
+        "Resume storage is not configured. Set SUPABASE_SERVICE_ROLE_KEY on Netlify.",
+      );
+    }
+    const latestPath = writeLocalLatest(userId, buffer);
     return {
       path: latestPath,
       url: `/local-resume/${userId}`,
@@ -150,6 +160,8 @@ export async function uploadResume(
 
     await upsertResumeRow(userId, displayName, storedBytes, storagePath);
 
+    const latestPath = canUseLocalFilesystem() ? writeLocalLatest(userId, buffer) : storagePath;
+
     return {
       path: latestPath,
       url: storagePath,
@@ -166,11 +178,26 @@ export async function uploadResume(
   }
 }
 
+export async function resumeExists(userId: string): Promise<boolean> {
+  if (isSupabaseServerConfigured()) {
+    const { data, error } = await getSupabaseServer()
+      .from("resumes")
+      .select("id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    return Boolean(data);
+  }
+
+  const latestPath = path.join(userDir(userId), LATEST_OBJECT);
+  return fs.existsSync(latestPath);
+}
+
 export async function getResumePath(userId: string): Promise<string | null> {
   const latestPath = path.join(userDir(userId), LATEST_OBJECT);
   if (fs.existsSync(latestPath)) return latestPath;
 
-  if (!isSupabaseConfigured()) return null;
+  if (!isSupabaseServerConfigured()) return null;
 
   try {
     const { data, error } = await getSupabaseServer()
@@ -196,13 +223,9 @@ export async function downloadResume(userId: string): Promise<Blob> {
 }
 
 export async function deleteResume(userId: string): Promise<void> {
-  if (isSupabaseConfigured()) {
-    try {
-      await purgeUserStorageObjects(userId);
-      await getSupabaseServer().from("resumes").delete().eq("user_id", userId);
-    } catch (err) {
-      console.error("deleteResume (supabase):", err);
-    }
+  if (isSupabaseServerConfigured()) {
+    await purgeUserStorageObjects(userId);
+    await getSupabaseServer().from("resumes").delete().eq("user_id", userId);
   }
 
   const dir = userDir(userId);

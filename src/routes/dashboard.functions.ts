@@ -6,7 +6,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { encryptData } from "@/security/encryption";
 import { requireSessionUser } from "@/security/serverAuth";
-import { uploadResume as storeResume, getResumePath, deleteResume } from "@/storage/storage";
+import { uploadResume as storeResume, getResumePath, deleteResume, resumeExists } from "@/storage/storage";
 import {
   getUserAutomation,
   saveUserAutomation,
@@ -159,8 +159,8 @@ export const setPlatformConnected = createServerFn({ method: "POST" })
       throw new Error("Save Naukri credentials before connecting");
     }
     if (data.connected) {
-      const resumePath = await getResumePath(userId);
-      if (!resumePath && !record.resume) {
+      const hasResume = record.resume ? true : await resumeExists(userId);
+      if (!hasResume) {
         throw new Error("Upload your resume before connecting");
       }
     }

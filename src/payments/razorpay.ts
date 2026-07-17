@@ -55,6 +55,10 @@ export async function createPayment(input: CreatePaymentInput): Promise<Razorpay
         amount: input.amountInPaise,
         currency: "INR",
         receipt: `receipt_${input.userId}_${Date.now()}`,
+        notes: {
+          user_id: input.userId,
+          plan: input.plan,
+        },
       }),
     });
 

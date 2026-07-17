@@ -12,7 +12,12 @@ import {
 } from "@/auth/googleAuth";
 import { PAID_PLANS, type PaidPlanId } from "@/payments/plans";
 import { subscriptionSummary } from "@/payments/subscriptionStatus";
-import { activatePaidPlan } from "@/routes/payment.functions";
+import {
+  activatePaidPlan,
+  createRazorpayOrder,
+  verifyAndActivatePaidPlan,
+} from "@/routes/payment.functions";
+import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -45,9 +50,40 @@ function Pricing() {
     }
     setLoadingPlan(planId);
     try {
-      const result = await activatePaidPlan({
-        data: { sessionToken: requireClientSessionToken(), planId },
+      const sessionToken = requireClientSessionToken();
+      const checkout = await createRazorpayOrder({
+        data: { sessionToken, planId },
       });
+
+      let result;
+      if (checkout.mode === "dev") {
+        result = await activatePaidPlan({ data: { sessionToken, planId } });
+      } else {
+        const payment = await openRazorpayCheckout({
+          key: checkout.keyId,
+          amount: checkout.amount,
+          currency: checkout.currency,
+          name: "DailyResume",
+          description: checkout.planName,
+          order_id: checkout.orderId,
+          prefill: {
+            email: checkout.userEmail,
+            name: checkout.userName,
+          },
+          theme: { color: "#0f766e" },
+        });
+
+        result = await verifyAndActivatePaidPlan({
+          data: {
+            sessionToken,
+            planId,
+            razorpay_order_id: payment.razorpay_order_id,
+            razorpay_payment_id: payment.razorpay_payment_id,
+            razorpay_signature: payment.razorpay_signature,
+          },
+        });
+      }
+
       updateSessionUser(result.user);
       setUser(result.user);
       toast.success(result.message);
@@ -145,7 +181,7 @@ function Pricing() {
                 variant={plan.popular ? "default" : "outline"}
               >
                 {loadingPlan === plan.id
-                  ? "Activating…"
+                  ? "Processing…"
                   : hasActivePremium
                     ? `Extend ${plan.name}`
                     : `Get ${plan.name}`}
