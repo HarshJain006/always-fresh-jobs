@@ -13,7 +13,6 @@ import {
 import { PAID_PLANS, type PaidPlanId } from "@/payments/plans";
 import { subscriptionSummary } from "@/payments/subscriptionStatus";
 import {
-  activatePaidPlan,
   createRazorpayOrder,
   verifyAndActivatePaidPlan,
 } from "@/routes/payment.functions";
@@ -55,34 +54,29 @@ function Pricing() {
         data: { sessionToken, planId },
       });
 
-      let result;
-      if (checkout.mode === "dev") {
-        result = await activatePaidPlan({ data: { sessionToken, planId } });
-      } else {
-        const payment = await openRazorpayCheckout({
-          key: checkout.keyId,
-          amount: checkout.amount,
-          currency: checkout.currency,
-          name: "DailyResume",
-          description: checkout.planName,
-          order_id: checkout.orderId,
-          prefill: {
-            email: checkout.userEmail,
-            name: checkout.userName,
-          },
-          theme: { color: "#0f766e" },
-        });
+      const payment = await openRazorpayCheckout({
+        key: checkout.keyId,
+        amount: checkout.amount,
+        currency: checkout.currency,
+        name: "DailyResume",
+        description: checkout.planName,
+        order_id: checkout.orderId,
+        prefill: {
+          email: checkout.userEmail,
+          name: checkout.userName,
+        },
+        theme: { color: "#0f766e" },
+      });
 
-        result = await verifyAndActivatePaidPlan({
-          data: {
-            sessionToken,
-            planId,
-            razorpay_order_id: payment.razorpay_order_id,
-            razorpay_payment_id: payment.razorpay_payment_id,
-            razorpay_signature: payment.razorpay_signature,
-          },
-        });
-      }
+      const result = await verifyAndActivatePaidPlan({
+        data: {
+          sessionToken,
+          planId,
+          razorpay_order_id: payment.razorpay_order_id,
+          razorpay_payment_id: payment.razorpay_payment_id,
+          razorpay_signature: payment.razorpay_signature,
+        },
+      });
 
       updateSessionUser(result.user);
       setUser(result.user);

@@ -3,6 +3,7 @@ import {
   enqueueDailyJobsForEligibleUsers,
   isEightAmIstWindow,
 } from "@/queue/enqueueDaily";
+import { isProductionRuntime } from "@/lib/production";
 
 /**
  * Netlify / external cron: enqueue daily jobs into Supabase (no Selenium).
@@ -31,12 +32,12 @@ export const Route = createFileRoute("/api/cron/daily-refresh")({
         if (denied) return denied;
 
         const url = new URL(request.url);
-        const force = url.searchParams.get("force") === "1";
+        const force = !isProductionRuntime() && url.searchParams.get("force") === "1";
 
         if (!force && !isEightAmIstWindow()) {
           return Response.json({
             skipped: true,
-            reason: "Outside 8:00–8:04 AM IST window. Pass ?force=1 (with CRON_SECRET) to enqueue anyway.",
+            reason: "Outside 8:00–8:04 AM IST window.",
           });
         }
 

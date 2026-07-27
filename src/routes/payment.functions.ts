@@ -4,7 +4,12 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { requireSessionUser } from "@/security/serverAuth";
-import { activateSubscription, createPayment, verifyPayment } from "@/payments/razorpay";
+import {
+  activateSubscription,
+  createPayment,
+  fetchRazorpayOrder,
+  verifyPayment,
+} from "@/payments/razorpay";
 import { getPlan, type PaidPlanId } from "@/payments/plans";
 import { getAuthoritativeAccess } from "@/security/accessControl";
 
@@ -19,19 +24,18 @@ function assertPaidPlan(planId: string) {
   return plan;
 }
 
-function razorpayConfigured(): boolean {
-  return Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+function requireRazorpayConfigured(): void {
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    throw new Error("Payments are not configured. Please try again later.");
+  }
 }
 
 export const createRazorpayOrder = createServerFn({ method: "POST" })
   .inputValidator((data: { sessionToken: string; planId: PaidPlanId }) => data)
   .handler(async ({ data }) => {
+    requireRazorpayConfigured();
     const plan = assertPaidPlan(data.planId);
     const user = await requireSessionUser(data.sessionToken);
-
-    if (!razorpayConfigured()) {
-      return { mode: "dev" as const, planId: plan.id };
-    }
 
     const order = await createPayment({
       userId: user.id,
@@ -40,7 +44,6 @@ export const createRazorpayOrder = createServerFn({ method: "POST" })
     });
 
     return {
-      mode: "razorpay" as const,
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
@@ -63,12 +66,9 @@ export const verifyAndActivatePaidPlan = createServerFn({ method: "POST" })
     }) => data,
   )
   .handler(async ({ data }) => {
+    requireRazorpayConfigured();
     const plan = assertPaidPlan(data.planId);
     const user = await requireSessionUser(data.sessionToken);
-
-    if (!razorpayConfigured()) {
-      throw new Error("Payments are not configured on the server.");
-    }
 
     const valid = await verifyPayment({
       razorpay_order_id: data.razorpay_order_id,
@@ -80,34 +80,15 @@ export const verifyAndActivatePaidPlan = createServerFn({ method: "POST" })
       throw new Error("Payment verification failed. Please contact support if you were charged.");
     }
 
-    const planFromRequest = getPlan(data.planId);
-    if (!planFromRequest || planFromRequest.amountInPaise < 100) {
-      throw new Error("Invalid plan selected.");
+    const order = await fetchRazorpayOrder(data.razorpay_order_id);
+    if (order.amount !== plan.amountInPaise) {
+      throw new Error("Payment amount does not match the selected plan.");
     }
-
-    await activateSubscription(user.id, data.planId);
-    const access = await getAuthoritativeAccess(user.id);
-
-    return {
-      ok: true,
-      user: access.user,
-      plan: plan.id,
-      planName: plan.name,
-      expireAt: access.subscriptionExpireAt,
-      daysRemaining: access.daysRemaining,
-      message: `${plan.name} plan is active until your renewal date.`,
-    };
-  });
-
-/** Dev-only activation when Razorpay keys are not set. */
-export const activatePaidPlan = createServerFn({ method: "POST" })
-  .inputValidator((data: { sessionToken: string; planId: PaidPlanId }) => data)
-  .handler(async ({ data }) => {
-    const plan = assertPaidPlan(data.planId);
-    const user = await requireSessionUser(data.sessionToken);
-
-    if (razorpayConfigured()) {
-      throw new Error("Use checkout to pay for your plan.");
+    if (order.notes?.user_id && order.notes.user_id !== user.id) {
+      throw new Error("Payment does not belong to this account.");
+    }
+    if (order.notes?.plan && order.notes.plan !== data.planId) {
+      throw new Error("Payment plan mismatch.");
     }
 
     await activateSubscription(user.id, data.planId);

@@ -60,10 +60,6 @@ function getRedirectUri(): string {
   return "https://dailyresume.in/google-callback.html";
 }
 
-export function getGoogleRedirectUriForDebug(): string {
-  return getRedirectUri();
-}
-
 function buildAuthUrl(clientId: string, redirectUri: string, nonce: string): string {
   const params = new URLSearchParams({
     client_id: clientId,

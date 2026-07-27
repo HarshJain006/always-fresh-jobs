@@ -6,14 +6,12 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
     "worker": "tsx scripts/queue-worker.ts",
     "worker:once": "tsx scripts/queue-worker.ts --once",
-    "worker:enqueue-daily": "tsx scripts/queue-worker.ts --enqueue-daily",
-    "remove:backend-test": "node scripts/remove-backend-test.mjs"
+    "worker:enqueue-daily": "tsx scripts/queue-worker.ts --enqueue-daily"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

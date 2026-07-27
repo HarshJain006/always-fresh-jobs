@@ -5,6 +5,7 @@
 import { updateUser } from "@/database/users";
 import { addMonths, getPlan, type PaidPlanId } from "@/payments/plans";
 import type { SubscriptionPlan } from "@/database/schemas";
+import { assertLiveRazorpayKeyId } from "@/lib/production";
 import crypto from "crypto";
 
 export interface CreatePaymentInput {
@@ -34,6 +35,8 @@ export async function createPayment(input: CreatePaymentInput): Promise<Razorpay
     console.error("[Razorpay] RAZORPAY_KEY_SECRET not configured");
     throw new Error("RAZORPAY_KEY_SECRET not configured. Check Netlify environment variables.");
   }
+
+  assertLiveRazorpayKeyId(keyId);
 
   if (input.amountInPaise < 100) {
     throw new Error("Amount must be at least 100 paise");
@@ -114,7 +117,7 @@ export async function verifyPayment(payload: {
       .digest("hex");
 
     const isValid = expectedSignature === payload.razorpay_signature;
-    
+
     if (!isValid) {
       console.error("[Signature Mismatch]", {
         expected: expectedSignature,
@@ -123,10 +126,39 @@ export async function verifyPayment(payload: {
     }
 
     return isValid;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[Signature Verification Error]", error);
     return false;
   }
+}
+
+export interface RazorpayOrderDetails {
+  id: string;
+  amount: number;
+  currency: string;
+  notes?: Record<string, string>;
+}
+
+/** Fetch order from Razorpay to validate amount/plan before activating subscription. */
+export async function fetchRazorpayOrder(orderId: string): Promise<RazorpayOrderDetails> {
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (!keyId || !keySecret) {
+    throw new Error("Payments are not configured.");
+  }
+  assertLiveRazorpayKeyId(keyId);
+
+  const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+  const response = await fetch(`https://api.razorpay.com/v1/orders/${encodeURIComponent(orderId)}`, {
+    headers: { Authorization: `Basic ${auth}` },
+  });
+
+  if (!response.ok) {
+    throw new Error("Could not verify payment order.");
+  }
+
+  const order = (await response.json()) as RazorpayOrderDetails;
+  return order;
 }
 
 /**

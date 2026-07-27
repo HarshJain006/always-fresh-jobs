@@ -52,10 +52,12 @@ Confirm table `automation_jobs` exists and RPCs:
 | `ENCRYPTION_KEY` | 32+ char secret (encrypt Naukri passwords) |
 | `SESSION_SECRET` | 32+ char secret (app sessions; can match ENCRYPTION_KEY) |
 | `CRON_SECRET` | 16+ char secret for `/api/cron/daily-refresh` |
+| `RAZORPAY_KEY_ID` | Live key `rzp_live_…` from Razorpay dashboard |
+| `RAZORPAY_KEY_SECRET` | Live secret from Razorpay dashboard |
 
 6. Google Console: Authorized origins + redirect URIs for `https://dailyresume.in` (see earlier setup).
 
-Netlify must **not** run Selenium. “Run now” / Start / Test only **insert rows** into `automation_jobs`.
+Netlify must **not** run Selenium. Dashboard actions only **enqueue jobs** into `automation_jobs`.
 
 ---
 
