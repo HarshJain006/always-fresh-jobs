@@ -39,6 +39,13 @@ export async function createPayment(input: CreatePaymentInput): Promise<Razorpay
     throw new Error("Amount must be at least 100 paise");
   }
 
+  // Razorpay receipt max length is 40; userId + timestamp exceeds that.
+  const receipt = `dr_${crypto
+    .createHash("sha256")
+    .update(`${input.userId}:${Date.now()}:${input.plan}`)
+    .digest("hex")
+    .slice(0, 32)}`;
+
   try {
     // <-- replaced network call with robust fetch implementation -->
     const fetchImpl = fetch;
@@ -54,7 +61,7 @@ export async function createPayment(input: CreatePaymentInput): Promise<Razorpay
       body: JSON.stringify({
         amount: input.amountInPaise,
         currency: "INR",
-        receipt: `receipt_${input.userId}_${Date.now()}`,
+        receipt,
         notes: {
           user_id: input.userId,
           plan: input.plan,
