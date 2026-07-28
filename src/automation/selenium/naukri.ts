@@ -53,7 +53,7 @@ Object.defineProperty(navigator, 'webdriver', {
 /** Mirrors naukri-ts naukriLogin(): logs into Naukri, returns login status + the driver. */
 export async function naukriLogin(
   creds: NaukriCredentials,
-): Promise<{ status: boolean; driver: WebDriver | null }> {
+): Promise<{ status: boolean; driver: WebDriver | null; error?: string }> {
   let status = false;
   let driver: WebDriver | null = null;
 
@@ -62,6 +62,8 @@ export async function naukriLogin(
   const loginBtnLocator = "//*[@type='submit' and normalize-space()='Login']";
   const skipLocator = "//*[text() = 'SKIP AND CONTINUE']";
   const closeLocator = "//*[contains(@class, 'cross-icon') or @alt='cross-icon']";
+  const loginErrorXpath =
+    "//*[contains(@class,'server-err') or contains(@class,'err-msg') or contains(@class,'error') or contains(text(),'Invalid') or contains(text(),'incorrect') or contains(text(),'Incorrect')]";
 
   try {
     driver = await loadNaukri(creds.headless, creds.naukriLoginUrl);
@@ -84,6 +86,11 @@ export async function naukriLogin(
       loginButton = await getElement(driver, loginBtnLocator, "XPATH");
     } else {
       logMsg("None of the elements found to login.");
+      return {
+        status: false,
+        driver,
+        error: "Naukri login page did not load correctly. Please try again later.",
+      };
     }
 
     if (emailField && passField && loginButton) {
@@ -114,16 +121,43 @@ export async function naukriLogin(
           status = true;
           return { status, driver };
         }
-        logMsg("Unknown Login Error");
-        return { status, driver };
       }
+
+      // Still on login form / error banner → wrong credentials
+      const stillOnLogin = await isElementPresent(driver, By.id(passwordLocator));
+      let errorText = "";
+      try {
+        if (await isElementPresent(driver, By.xpath(loginErrorXpath))) {
+          const errEl = await getElement(driver, loginErrorXpath, "XPATH");
+          errorText = ((await errEl?.getText()) || "").trim();
+        }
+      } catch {
+        /* ignore */
+      }
+
+      if (stillOnLogin || /invalid|incorrect|wrong|password|username/i.test(errorText)) {
+        const message =
+          "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
+        logMsg(message + (errorText ? ` (${errorText})` : ""));
+        return { status: false, driver, error: message };
+      }
+
       logMsg("Unknown Login Error");
-      return { status, driver };
+      return {
+        status: false,
+        driver,
+        error: "Naukri login failed. Please verify your credentials and try again.",
+      };
     }
   } catch (e) {
     logError(e, "naukriLogin");
+    return {
+      status: false,
+      driver,
+      error: `Naukri login error: ${e instanceof Error ? e.message : String(e)}`,
+    };
   }
-  return { status, driver };
+  return { status, driver, error: "Naukri login failed" };
 }
 
 /** Mirrors naukri-ts UpdateProfile(): updates the mobile number on the profile. */

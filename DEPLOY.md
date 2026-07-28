@@ -7,12 +7,16 @@ Browser → Netlify (UI + enqueue APIs)
               ↓
          Supabase Postgres  ←── automation_jobs queue (durable, free)
               ↑
-     Raspberry Pi worker  (claims jobs, runs headless Chrome, writes logs)
+     Raspberry Pi worker  (4 concurrent slots, claims jobs, runs headless Chrome, writes logs)
 ```
 
-If the Pi loses power, jobs stay in Supabase as `pending` / expire their lease and return to `pending`. When the Pi starts again it **reclaims** and continues.
+**Daily schedule (IST) — dynamic:**
+1. Worker counts eligible users each minute
+2. Start time = **8:00 AM − (ceil(users ÷ 4) × 3 min + 5 min buffer)**
+3. Example: 27 users → 7 batches × 3 = 21 + 5 buffer → start **~7:34 AM**, finish before 8:00
+4. As users grow, start moves earlier automatically (never earlier than 2:00 AM)
 
-**Queue tool:** Supabase/Postgres with `FOR UPDATE SKIP LOCKED` — best free fit (no Redis, no BullMQ cloud, already in your stack).
+If the Pi loses power, jobs stay in Supabase as `pending` / expire their lease and return to `pending`. When the Pi starts again it **reclaims** and continues.
 
 ---
 
@@ -23,41 +27,18 @@ In Supabase → SQL Editor, run:
 1. `supabase/schema.sql` (if not already)
 2. `supabase/migrations/003_lock_trial_fields.sql`
 3. `supabase/migrations/004_automation_jobs_queue.sql` ← **job queue**
-4. `supabase/migrations/005_security_lockdown.sql` ← **RLS lockdown (required before public launch)**
+4. `supabase/migrations/005_security_lockdown.sql` ← **RLS lockdown**
+5. `supabase/migrations/006_subscription_plans.sql` ← **plans**
 
-Confirm table `automation_jobs` exists and RPCs:
-`claim_automation_job`, `complete_automation_job`, `heartbeat_automation_job`, `reclaim_stale_automation_jobs`.
+Confirm tables `automation_jobs`, `automation_logs`, `user_automation` exist.
 
 ---
 
-## 2. Netlify (frontend — free)
+## 2. Netlify (frontend)
 
-1. Push this repo to GitHub.
-2. [Netlify](https://app.netlify.com/) → Add new site → Import from Git.
-3. Build settings:
-   - **Build command:** `npm run build`
-   - **Publish directory:** `dist`
-4. Domain: add `dailyresume.in` (and `www`) under Domain management.  
-   **Full guide (build → upload → domain):** [DOMAIN_SETUP.md](./DOMAIN_SETUP.md)
-5. Environment variables (Site settings → Environment):
+Already deployed. Keep these env vars set (including live Razorpay keys).
 
-| Name | Value |
-|------|--------|
-| `VITE_APP_URL` | `https://dailyresume.in` |
-| `VITE_GOOGLE_CLIENT_ID` | your Google client id |
-| `VITE_GOOGLE_REDIRECT_URI` | `https://dailyresume.in/google-callback.html` |
-| `VITE_SUPABASE_URL` | your Supabase URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | publishable key |
-| `SUPABASE_SERVICE_ROLE_KEY` | **service role** (server enqueue + storage; never expose to browser) |
-| `ENCRYPTION_KEY` | 32+ char secret (encrypt Naukri passwords) |
-| `SESSION_SECRET` | 32+ char secret (app sessions; can match ENCRYPTION_KEY) |
-| `CRON_SECRET` | 16+ char secret for `/api/cron/daily-refresh` |
-| `RAZORPAY_KEY_ID` | Live key `rzp_live_…` from Razorpay dashboard |
-| `RAZORPAY_KEY_SECRET` | Live secret from Razorpay dashboard |
-
-6. Google Console: Authorized origins + redirect URIs for `https://dailyresume.in` (see earlier setup).
-
-Netlify must **not** run Selenium. Dashboard actions only **enqueue jobs** into `automation_jobs`.
+Dashboard actions only enqueue / update state — Selenium never runs on Netlify.
 
 ---
 
@@ -71,17 +52,30 @@ sudo apt install -y chromium-browser
 # or google-chrome-stable on supported Pi OSes
 
 cd ~/DailyResume/always-fresh-jobs   # clone your repo here
+git pull
 npm ci
+```
 
-# Create .env.worker (or .env) with at least:
-# VITE_SUPABASE_URL=...
-# VITE_SUPABASE_PUBLISHABLE_KEY=...
-# SUPABASE_SERVICE_ROLE_KEY=...   # recommended on the Pi
-# ENCRYPTION_KEY=...              # MUST match Netlify
-# WORKER_ID=rpi-living-room       # optional unique name
-# QUEUE_POLL_MS=5000
-# QUEUE_LEASE_SECONDS=900
+### `.env` on the Pi (required)
 
+```bash
+VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key   # REQUIRED — activity logs + queue
+ENCRYPTION_KEY=same-as-netlify                    # MUST match Netlify
+SESSION_SECRET=same-as-netlify                    # optional on Pi
+
+WORKER_ID=rpi-1
+QUEUE_CONCURRENCY=4          # 4 resumes at the same time
+QUEUE_MINUTES_PER_USER=3     # assumed time per resume
+QUEUE_BUFFER_MINUTES=5       # safety margin before 8:00 AM
+QUEUE_FINISH_HOUR_IST=8      # must finish by this hour
+QUEUE_EARLIEST_HOUR_IST=2    # never start before this hour
+QUEUE_POLL_MS=5000
+QUEUE_LEASE_SECONDS=900
+```
+
+```bash
 npm run worker
 ```
 
@@ -91,7 +85,7 @@ npm run worker
 
 ```ini
 [Unit]
-Description=DailyResume Selenium queue worker
+Description=DailyResume Selenium queue worker (4 concurrent, dynamic start)
 After=network-online.target
 Wants=network-online.target
 
@@ -118,7 +112,7 @@ sudo journalctl -u dailyresume-worker -f
 
 | Command | What it does |
 |---------|----------------|
-| `npm run worker` | Poll forever + enqueue at 8:00 AM IST |
+| `npm run worker` | Poll forever with 4 slots + dynamic morning enqueue |
 | `npm run worker:once` | Claim & run one job then exit |
 | `npm run worker:enqueue-daily` | Only push today's daily jobs into the queue |
 
@@ -128,28 +122,28 @@ sudo journalctl -u dailyresume-worker -f
 
 | Trigger | Who | Action |
 |---------|-----|--------|
-| User clicks Start / Run now / Test | Netlify | `INSERT` into `automation_jobs` |
-| 8:00 AM IST | Pi cron **or** Netlify `/api/cron/daily-refresh` | Enqueue `daily_refresh` for eligible users |
-| Always | Pi worker | `claim` → Selenium → `complete` / retry |
+| User clicks Start | Netlify | Sets automation `running` + may enqueue today's job |
+| Dynamic morning (e.g. 7:40) | Pi worker | Enqueue `daily_refresh` for eligible users |
+| Always | Pi (4 slots) | `claim` → Selenium → `complete` + write `automation_logs` |
+| Wrong Naukri password | Pi | Log failure to Recent activity: incorrect username/password |
 | Pi crash mid-job | Supabase | Lease expires → status back to `pending` |
 
 ---
 
-## 5. Optional Netlify cron
+## 5. Optional Netlify cron (backup enqueue)
 
-If you want enqueue even when the Pi is off at 8 AM (jobs wait in queue):
+If you want enqueue even when the Pi is off:
 
-Netlify Scheduled Function or external cron (cron-job.org free) →  
-`POST https://dailyresume.in/api/cron/daily-refresh`  
+External cron → `POST https://dailyresume.in/api/cron/daily-refresh`  
 Header: `x-cron-secret: <CRON_SECRET>`
 
-When the Pi comes online it drains the queue.
+Prefer running this around the morning window. When the Pi comes online it drains the queue.
 
 ---
 
 ## 6. Verify
 
-1. Open dashboard on `dailyresume.in` → Start or Test backend.
-2. In Supabase → Table `automation_jobs` → see `pending`.
-3. On Pi: `journalctl -u dailyresume-worker -f` → claims job → “Naukri Login Successful”.
-4. Unplug Pi mid-run → wait ~15 min (lease) or set shorter `QUEUE_LEASE_SECONDS` → job returns to `pending` → plug in → worker resumes.
+1. On Pi: `sudo journalctl -u dailyresume-worker -f` → see schedule plan log like `27 users → start 07:34 IST`.
+2. Manually: `npm run worker:enqueue-daily` then watch jobs move `pending` → `running` → `completed` in Supabase `automation_jobs`.
+3. Open dashboard → **Recent activity** shows success or password errors.
+4. Wrong password test: save bad Naukri password → run a job → activity should say incorrect username or password.

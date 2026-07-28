@@ -72,7 +72,9 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
         ? `Resume updated on Naukri${lastUpdated ? ` (${lastUpdated})` : ""}`
         : `Resume upload could not be verified on Naukri${lastUpdated ? ` — last updated: ${lastUpdated}` : ""}`;
     } else {
-      message = "Naukri login failed";
+      message =
+        result.error ||
+        "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
     }
   } catch (e) {
     logError(e, "runNaukriJob");

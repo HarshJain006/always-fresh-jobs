@@ -1,13 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
   enqueueDailyJobsForEligibleUsers,
-  isEightAmIstWindow,
+  isWithinDynamicEnqueueWindow,
+  planTodaysEnqueue,
 } from "@/queue/enqueueDaily";
 import { isProductionRuntime } from "@/lib/production";
 
 /**
  * Netlify / external cron: enqueue daily jobs into Supabase (no Selenium).
  * Requires CRON_SECRET — fails closed if unset.
+ *
+ * Prefer the Pi worker for dynamic scheduling. This endpoint is a backup:
+ * GET only enqueues inside today's computed window; POST always enqueues.
  */
 function authorizeCron(request: Request): Response | null {
   const secret = process.env.CRON_SECRET;
@@ -33,22 +37,25 @@ export const Route = createFileRoute("/api/cron/daily-refresh")({
 
         const url = new URL(request.url);
         const force = !isProductionRuntime() && url.searchParams.get("force") === "1";
+        const plan = await planTodaysEnqueue();
 
-        if (!force && !isEightAmIstWindow()) {
+        if (!force && !isWithinDynamicEnqueueWindow(plan)) {
           return Response.json({
             skipped: true,
-            reason: "Outside 8:00–8:04 AM IST window.",
+            reason: `Outside dynamic window (start ${plan.startLabel} IST, finish by ${plan.finishLabel}).`,
+            plan,
           });
         }
 
         const result = await enqueueDailyJobsForEligibleUsers();
-        return Response.json({ ok: true, queued: true, ...result });
+        return Response.json({ ok: true, queued: true, plan, ...result });
       },
       POST: async ({ request }) => {
         const denied = authorizeCron(request);
         if (denied) return denied;
+        const plan = await planTodaysEnqueue();
         const result = await enqueueDailyJobsForEligibleUsers();
-        return Response.json({ ok: true, queued: true, ...result });
+        return Response.json({ ok: true, queued: true, plan, ...result });
       },
     },
   },

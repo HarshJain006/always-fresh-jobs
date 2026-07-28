@@ -16,7 +16,6 @@ import {
   Square,
   Play,
   KeyRound,
-  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -32,7 +31,6 @@ import {
   deleteUserResume,
   setPlatformConnected,
   setAutomationState,
-  runNaukriNow,
 } from "@/routes/dashboard.functions";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
@@ -319,11 +317,8 @@ function Dashboard() {
     try {
       await setAutomationState({ data: { sessionToken: requireClientSessionToken(), state: "running" } });
       setState("running");
-      toast.success("Automation started. Your first refresh is running…");
-      const result = await runNaukriNow({ data: { sessionToken: requireClientSessionToken() } });
+      toast.success("Automation started. Daily refresh runs each morning and finishes before 8:00 AM IST.");
       await refreshLogs();
-      if (result.ok) toast.success(result.message);
-      else toast.error(result.message);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not start automation.");
     } finally {
@@ -347,7 +342,7 @@ function Dashboard() {
     try {
       await setAutomationState({ data: { sessionToken: requireClientSessionToken(), state: "running" } });
       setState("running");
-      toast.success("Automation resumed. Next refresh at 8:00 AM IST.");
+      toast.success("Automation resumed. Daily refresh continues each morning before 8:00 AM IST.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not resume.");
     }
@@ -361,26 +356,6 @@ function Dashboard() {
       toast("Automation stopped.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not stop.");
-    }
-  }
-
-  async function handleRunNow() {
-    if (!user) return;
-    if (!allowed) return toast.error("Your trial has expired.");
-    if (!step1Done || !credentialsSaved || !step2Done) {
-      return toast.error("Complete setup first (resume, credentials, connect Naukri).");
-    }
-    setBusy(true);
-    try {
-      toast("Starting your Naukri refresh…");
-      const result = await runNaukriNow({ data: { sessionToken: requireClientSessionToken() } });
-      await refreshLogs();
-      if (result.ok) toast.success(result.message);
-      else toast.error(result.message);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Refresh failed.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -634,7 +609,7 @@ function Dashboard() {
           <StepCard
             n={3}
             title="Control your automation"
-            desc="Runs every morning at 8:00 AM IST. Start, pause, or stop whenever you like."
+            desc="Runs each morning and finishes before 8:00 AM IST. Start, pause, or stop whenever you like."
             done={step3Done}
             active={currentStep === 3}
             locked={!step1Done || !step2Done}
@@ -664,9 +639,6 @@ function Dashboard() {
                   >
                     <Square className="mr-2 h-4 w-4" /> Stop
                   </Button>
-                  <Button variant="secondary" onClick={handleRunNow} disabled={busy}>
-                    <RefreshCw className="mr-2 h-4 w-4" /> Run now
-                  </Button>
                 </>
               )}
               {state === "paused" && (
@@ -685,9 +657,6 @@ function Dashboard() {
                     className="text-destructive hover:text-destructive"
                   >
                     <Square className="mr-2 h-4 w-4" /> Stop
-                  </Button>
-                  <Button variant="secondary" onClick={handleRunNow} disabled={busy}>
-                    <RefreshCw className="mr-2 h-4 w-4" /> Run now
                   </Button>
                 </>
               )}
@@ -739,7 +708,9 @@ function AutomationStatus({ state }: { state: AutomationState }) {
         </div>
         <div>
           <div className="text-sm font-semibold text-success">Automation active</div>
-          <div className="text-xs text-muted-foreground">Next refresh: tomorrow, 8:00 AM IST</div>
+          <div className="text-xs text-muted-foreground">
+            Daily refresh runs each morning and finishes before 8:00 AM IST
+          </div>
         </div>
       </div>
     );
