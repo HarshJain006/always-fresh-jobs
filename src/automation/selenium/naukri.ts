@@ -45,7 +45,13 @@ export async function loadNaukri(headless: boolean, loginUrl: string): Promise<W
     options.addArguments("--headless=new");
   }
 
-  const driver = await new Builder().forBrowser("chrome").setChromeOptions(options).build();
+  const service = new chrome.ServiceBuilder("/usr/bin/chromedriver");
+
+  const driver = await new Builder()
+  .forBrowser("chrome")
+  .setChromeService(service)
+  .setChromeOptions(options)
+  .build();
   await driver.executeScript(`
 Object.defineProperty(navigator, 'webdriver', {
     get: () => undefined
