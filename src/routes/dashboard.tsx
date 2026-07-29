@@ -403,6 +403,24 @@ function Dashboard() {
                 We use these to sign in and refresh your profile daily. Stored encrypted — only used
                 for your automatic refreshes.
               </p>
+              <div className="mt-4 rounded-lg border border-border/60 bg-surface-muted/40 p-4">
+                <p className="text-sm font-medium">Signed in to Naukri with Google?</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  You can still use DailyResume — set a password on Naukri first, then enter that
+                  email and password here.
+                </p>
+                <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-muted-foreground">
+                  <li>Log out of Naukri if you are currently signed in.</li>
+                  <li>
+                    On the Naukri login page, choose{" "}
+                    <span className="font-medium text-foreground">Forgot Password</span> or{" "}
+                    <span className="font-medium text-foreground">Use OTP to Login</span>.
+                  </li>
+                  <li>Verify your email with the OTP Naukri sends you.</li>
+                  <li>Set a new password for your account.</li>
+                  <li>Enter that email and password in the form below.</li>
+                </ol>
+              </div>
               <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={handleSaveCredentials}>
                 <div className="grid gap-1.5">
                   <Label htmlFor="cred-username">Naukri email / username</Label>
