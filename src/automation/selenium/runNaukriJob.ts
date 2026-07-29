@@ -4,11 +4,10 @@
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
 import type { WebDriver } from "selenium-webdriver";
 import { logMsg, logError } from "./logger";
 import { naukriLogin, updateProfile, uploadResume, logout, tearDown } from "./naukri";
-import { updateResume } from "./resume";
+import { logPdfFileDetails } from "./resume";
 import type { NaukriCredentials } from "./types";
 
 export interface RunNaukriJobInput {
@@ -17,7 +16,6 @@ export interface RunNaukriJobInput {
   mobile: string;
   resumePath: string;
   headless?: boolean;
-  updatePdf?: boolean;
 }
 
 export interface RunNaukriJobResult {
@@ -35,16 +33,15 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
     logMsg("-----Naukri job ended-----\n");
     return { ok: false, message, lastUpdated: null };
   }
+  await logPdfFileDetails("Resolved resume from storage/cache", input.resumePath);
 
   const creds: NaukriCredentials = {
     username: input.username,
     password: input.password,
     mobile: input.mobile,
     originalResumePath: input.resumePath,
-    modifiedResumePath: path.join(path.dirname(input.resumePath), "Naukri_Resume_Updated.pdf"),
     naukriLoginUrl: "https://www.naukri.com/nlogin/login",
     naukriProfileUrl: "https://www.naukri.com/mnjuser/profile",
-    updatePdf: input.updatePdf ?? true,
     headless: input.headless ?? true, // SaaS runs headless
   };
 
@@ -60,10 +57,8 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
     if (result.status && driver) {
       await updateProfile(driver, creds.mobile);
 
-      let resumePath = creds.originalResumePath;
-      if (creds.updatePdf) {
-        resumePath = await updateResume(creds.originalResumePath, creds.modifiedResumePath);
-      }
+      const resumePath = creds.originalResumePath;
+      await logPdfFileDetails("User resume passed to Naukri upload", resumePath);
 
       const upload = await uploadResume(driver, resumePath, creds.naukriProfileUrl);
       ok = upload.ok;

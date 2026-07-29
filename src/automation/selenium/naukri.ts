@@ -6,9 +6,17 @@
 import { Builder, By, Key, type WebDriver } from "selenium-webdriver";
 import * as chrome from "selenium-webdriver/chrome";
 import "chromedriver";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { logMsg, logError } from "./logger";
-import { getElement, isElementPresent, waitTillElementPresent, ci, sleep } from "./selenium-helpers";
+import {
+  getElement,
+  isElementPresent,
+  waitTillElementPresent,
+  ci,
+  sleep,
+} from "./selenium-helpers";
+import { logPdfFileDetails } from "./resume";
 import type { NaukriCredentials } from "./types";
 
 /** Mirrors naukri-ts LoadNaukri(): launches Chrome and navigates to the login URL. */
@@ -164,7 +172,8 @@ export async function naukriLogin(
 export async function updateProfile(driver: WebDriver, mobile: string): Promise<void> {
   try {
     const mobXpath = "//*[@name='mobile'] | //*[@id='mob_number']";
-    const saveXpath = "//button[@type='submit'][@value='Save Changes'] | //*[@id='saveBasicDetailsBtn']";
+    const saveXpath =
+      "//button[@type='submit'][@value='Save Changes'] | //*[@id='saveBasicDetailsBtn']";
     const viewProfileLocator = "//*[contains(@class, 'view-profile')]//a";
     const editLocator = "(//*[contains(@class, 'icon edit')])[1]";
     const saveConfirm = "//*[text()='today' or text()='Today']";
@@ -229,6 +238,70 @@ export async function updateProfile(driver: WebDriver, mobile: string): Promise<
   }
 }
 
+function screenshotPath(label: string): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeLabel = label.replace(/[^\w.-]+/g, "_");
+  const dir = path.join(process.cwd(), ".data", "screenshots", "naukri");
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${stamp}_${safeLabel}.png`);
+}
+
+async function saveScreenshot(driver: WebDriver, label: string): Promise<void> {
+  try {
+    const filePath = screenshotPath(label);
+    const image = await driver.takeScreenshot();
+    fs.writeFileSync(filePath, image, "base64");
+    logMsg(`Screenshot saved (${label}): ${filePath}`);
+  } catch (e) {
+    logError(e, `saveScreenshot(${label})`);
+  }
+}
+
+async function getTextIfPresent(
+  driver: WebDriver,
+  xpath: string,
+  timeoutSeconds = 5,
+): Promise<string | null> {
+  if (!(await waitTillElementPresent(driver, xpath, "XPATH", timeoutSeconds))) return null;
+  const el = await getElement(driver, xpath, "XPATH");
+  const text = ((await el?.getText()) || "").trim();
+  return text || null;
+}
+
+async function waitForUploadCompletion(
+  driver: WebDriver,
+  checkpointXpath: string,
+  beforeDate: string | null,
+): Promise<{ afterDate: string | null; statusText: string | null; completed: boolean }> {
+  const uploadStatusXpath =
+    "//*[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'resume') and " +
+    "(contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'success') or " +
+    "contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'uploaded') or " +
+    "contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'updated'))]";
+  const start = Date.now();
+  let afterDate: string | null = null;
+  let statusText: string | null = null;
+
+  while (Date.now() - start < 60_000) {
+    statusText = await getTextIfPresent(driver, uploadStatusXpath, 1);
+    afterDate = await getTextIfPresent(driver, checkpointXpath, 1);
+
+    const dateChanged = beforeDate !== null && afterDate !== null && afterDate !== beforeDate;
+    const movedToToday =
+      afterDate !== null &&
+      checkContainsToday(afterDate) &&
+      (beforeDate === null || !checkContainsToday(beforeDate));
+    const hasSuccess = statusText !== null && /success|uploaded|updated/i.test(statusText);
+    if (dateChanged || movedToToday || hasSuccess) {
+      return { afterDate, statusText, completed: true };
+    }
+
+    await sleep(2000);
+  }
+
+  return { afterDate, statusText, completed: false };
+}
+
 /**
  * Mirrors naukri-ts UploadResume().
  * Returns ok/lastUpdated so the SaaS worker can write Recent activity.
@@ -249,9 +322,11 @@ export async function uploadResume(
     const closeLocator = "//*[contains(@class, 'crossIcon')]";
     const resolvedPath = path.resolve(resumePath);
 
+    await logPdfFileDetails("Selenium upload file", resolvedPath);
     logMsg(`Navigating to profile: ${profileUrl}`);
     await driver.get(profileUrl);
     await sleep(3000);
+    await saveScreenshot(driver, "before_upload_profile");
 
     if (await waitTillElementPresent(driver, closeLocator, "XPATH", 10)) {
       const el = await getElement(driver, closeLocator, "XPATH");
@@ -271,35 +346,38 @@ export async function uploadResume(
     let uploaded = false;
 
     // Strategy 1: lazyAttachCV (hidden file input activated by button)
-    if (!uploaded && await waitTillElementPresent(driver, lazyAttachCVID, "ID", 5)) {
+    if (!uploaded && (await waitTillElementPresent(driver, lazyAttachCVID, "ID", 5))) {
       logMsg("Found lazyAttachCV — trying uploadCVBtn");
       const btn = await getElement(driver, uploadCVBtn, "XPATH");
       if (btn) {
         await btn.sendKeys(resolvedPath);
         uploaded = true;
         logMsg("Sent resume via uploadCVBtn (lazyAttachCV)");
+        await saveScreenshot(driver, "after_sendkeys_lazyAttachCV");
       }
     }
 
     // Strategy 2: attachCV (direct file input)
-    if (!uploaded && await waitTillElementPresent(driver, attachCVID, "ID", 5)) {
+    if (!uploaded && (await waitTillElementPresent(driver, attachCVID, "ID", 5))) {
       logMsg("Found attachCV — sending file directly");
       const attachEl = await getElement(driver, attachCVID, "ID");
       if (attachEl) {
         await attachEl.sendKeys(resolvedPath);
         uploaded = true;
         logMsg("Sent resume via attachCV");
+        await saveScreenshot(driver, "after_sendkeys_attachCV");
       }
     }
 
     // Strategy 3: any file input on the page
-    if (!uploaded && await waitTillElementPresent(driver, fileInputXpath, "XPATH", 5)) {
+    if (!uploaded && (await waitTillElementPresent(driver, fileInputXpath, "XPATH", 5))) {
       logMsg("Trying generic file input fallback");
       const fileEl = await getElement(driver, fileInputXpath, "XPATH");
       if (fileEl) {
         await fileEl.sendKeys(resolvedPath);
         uploaded = true;
         logMsg("Sent resume via generic file input");
+        await saveScreenshot(driver, "after_sendkeys_generic_file_input");
       }
     }
 
@@ -308,8 +386,16 @@ export async function uploadResume(
       return { ok: false, lastUpdated: null };
     }
 
-    // Wait for Naukri to process the upload and update the checkpoint text
+    const completion = await waitForUploadCompletion(driver, checkpointXpath, beforeDate);
+    logMsg(
+      `Upload completion status: completed=${completion.completed}, statusText=${completion.statusText ?? "(not found)"}`,
+    );
+    await saveScreenshot(driver, "after_upload_completion_wait");
+
+    // Refresh once after completion so the verification reads the persisted profile state.
+    await driver.navigate().refresh();
     await sleep(5000);
+    await saveScreenshot(driver, "after_upload_refresh");
 
     await waitTillElementPresent(driver, checkpointXpath, "XPATH", 30);
     const checkpoint = await getElement(driver, checkpointXpath, "XPATH");
@@ -318,15 +404,20 @@ export async function uploadResume(
       lastUpdated = afterDate;
       logMsg(`After-upload date: ${afterDate}`);
 
-      // Success if: date text changed, OR date text contains today's IST date
+      // Success if Naukri reports a persisted date change or an upload-complete signal.
       const dateChanged = beforeDate !== null && afterDate !== beforeDate;
-      const containsToday = checkContainsToday(afterDate);
+      const movedToToday =
+        checkContainsToday(afterDate) && (beforeDate === null || !checkContainsToday(beforeDate));
+      const uploadCompleted =
+        completion.completed && /success|uploaded|updated/i.test(completion.statusText ?? "");
 
-      if (dateChanged || containsToday) {
+      if (dateChanged || movedToToday || uploadCompleted) {
         logMsg(`Resume Document Upload Successful. Last Updated = ${afterDate}`);
         ok = true;
       } else {
-        logMsg(`Resume upload could not be verified. Before=${beforeDate}, After=${afterDate}`);
+        logMsg(
+          `Resume upload could not be verified. Before=${beforeDate}, After=${afterDate}, statusText=${completion.statusText ?? "(not found)"}`,
+        );
       }
     } else {
       logMsg("Resume Document Upload: last-updated element not found after upload.");
@@ -341,17 +432,23 @@ export async function uploadResume(
 /** Check if a Naukri date string (e.g. "Uploaded on Jul 29, 2026") contains today's IST date. */
 function checkContainsToday(text: string): boolean {
   const monthNames = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
   ];
 
   // Use IST (UTC+5:30) — not the Pi's local system clock
-  const nowIst = new Date(Date.now() + (5.5 * 60 * 60 * 1000));
-  const utcAdjusted = new Date(
-    nowIst.getUTCFullYear(),
-    nowIst.getUTCMonth(),
-    nowIst.getUTCDate(),
-  );
+  const nowIst = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const utcAdjusted = new Date(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate());
 
   const month = monthNames[utcAdjusted.getMonth()];
   const day = utcAdjusted.getDate();

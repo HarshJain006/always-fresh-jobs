@@ -13,14 +13,10 @@
  *   npm run worker:enqueue-daily
  */
 
+import "./load-env";
 import cron from "node-cron";
 import * as os from "node:os";
-import {
-  claimNextJob,
-  completeJob,
-  heartbeatJob,
-  reclaimStaleJobs,
-} from "../src/queue/jobs";
+import { claimNextJob, completeJob, heartbeatJob, reclaimStaleJobs } from "../src/queue/jobs";
 import { isTransientFetchError } from "../src/lib/retry";
 import {
   enqueueDailyJobsForEligibleUsers,
@@ -38,8 +34,7 @@ const POLL_MS = Number(process.env.QUEUE_POLL_MS || 5000);
 const LEASE_SECONDS = Number(process.env.QUEUE_LEASE_SECONDS || 900);
 const RECLAIM_MS = Number(process.env.QUEUE_RECLAIM_MS || 60_000);
 const CONCURRENCY = getQueueConcurrency();
-const BASE_WORKER_ID =
-  process.env.WORKER_ID || `rpi-${os.hostname()}-${process.pid}`;
+const BASE_WORKER_ID = process.env.WORKER_ID || `rpi-${os.hostname()}-${process.pid}`;
 
 /** Avoid double-enqueue for the same IST calendar day. */
 let lastEnqueuedForDate: string | null = null;
@@ -88,10 +83,7 @@ async function safeReclaim(): Promise<void> {
       console.log(`[worker] Reclaimed ${reclaimed} stale job(s) from crashed workers`);
     }
   } catch (err) {
-    console.error(
-      "[worker] reclaim error:",
-      err instanceof Error ? err.message : err,
-    );
+    console.error("[worker] reclaim error:", err instanceof Error ? err.message : err);
   } finally {
     reclaimInFlight = false;
   }
@@ -116,15 +108,17 @@ async function processOneJob(workerId: string): Promise<boolean> {
     `[worker] Claimed ${job.id} user=${job.user_id} type=${job.job_type} attempt=${job.attempts} slot=${workerId}`,
   );
 
-  const heartbeat = setInterval(() => {
-    void heartbeatJob(job.id, workerId, LEASE_SECONDS);
-  }, Math.max(30_000, Math.floor(LEASE_SECONDS * 1000 * 0.4)));
+  const heartbeat = setInterval(
+    () => {
+      void heartbeatJob(job.id, workerId, LEASE_SECONDS);
+    },
+    Math.max(30_000, Math.floor(LEASE_SECONDS * 1000 * 0.4)),
+  );
 
   try {
     await heartbeatJob(job.id, workerId, LEASE_SECONDS);
     const result = await runPlatformForUser(job.user_id, job.platform, {
       headless: true,
-      updatePdf: true,
     });
     await completeJob(job.id, workerId, result.ok, result.message);
     console.log(`[worker] Done ${job.id}: ${result.ok ? "ok" : "fail"} — ${result.message}`);
