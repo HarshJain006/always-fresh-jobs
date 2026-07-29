@@ -244,12 +244,14 @@ export async function uploadResume(
     const attachCVID = "attachCV";
     const lazyAttachCVID = "lazyAttachCV";
     const uploadCVBtn = "//*[contains(@class, 'upload')]//input[@value='Update resume']";
+    const fileInputXpath = "//input[@type='file']";
     const checkpointXpath = "//*[contains(@class, 'updateOn')]";
-    const saveXpath = "//button[@type='button']";
     const closeLocator = "//*[contains(@class, 'crossIcon')]";
+    const resolvedPath = path.resolve(resumePath);
 
+    logMsg(`Navigating to profile: ${profileUrl}`);
     await driver.get(profileUrl);
-    await sleep(2000);
+    await sleep(3000);
 
     if (await waitTillElementPresent(driver, closeLocator, "XPATH", 10)) {
       const el = await getElement(driver, closeLocator, "XPATH");
@@ -257,59 +259,109 @@ export async function uploadResume(
       await sleep(2000);
     }
 
-    if (await waitTillElementPresent(driver, lazyAttachCVID, "ID", 5)) {
-      const attachElement = await getElement(driver, uploadCVBtn, "XPATH");
-      await attachElement?.sendKeys(path.resolve(resumePath));
+    // Read the "last updated" date BEFORE uploading so we can detect a change
+    let beforeDate: string | null = null;
+    if (await waitTillElementPresent(driver, checkpointXpath, "XPATH", 10)) {
+      const beforeEl = await getElement(driver, checkpointXpath, "XPATH");
+      if (beforeEl) beforeDate = await beforeEl.getText();
+    }
+    logMsg(`Before-upload date: ${beforeDate ?? "(not found)"}`);
+
+    // Try multiple strategies to find the file input and send the resume
+    let uploaded = false;
+
+    // Strategy 1: lazyAttachCV (hidden file input activated by button)
+    if (!uploaded && await waitTillElementPresent(driver, lazyAttachCVID, "ID", 5)) {
+      logMsg("Found lazyAttachCV — trying uploadCVBtn");
+      const btn = await getElement(driver, uploadCVBtn, "XPATH");
+      if (btn) {
+        await btn.sendKeys(resolvedPath);
+        uploaded = true;
+        logMsg("Sent resume via uploadCVBtn (lazyAttachCV)");
+      }
     }
 
-    if (await waitTillElementPresent(driver, attachCVID, "ID", 5)) {
-      const attachElement = await getElement(driver, attachCVID, "ID");
-      await attachElement?.sendKeys(path.resolve(resumePath));
+    // Strategy 2: attachCV (direct file input)
+    if (!uploaded && await waitTillElementPresent(driver, attachCVID, "ID", 5)) {
+      logMsg("Found attachCV — sending file directly");
+      const attachEl = await getElement(driver, attachCVID, "ID");
+      if (attachEl) {
+        await attachEl.sendKeys(resolvedPath);
+        uploaded = true;
+        logMsg("Sent resume via attachCV");
+      }
     }
 
-    if (await waitTillElementPresent(driver, saveXpath, "ID", 5)) {
-      const saveElement = await getElement(driver, saveXpath, "XPATH");
-      await saveElement?.click();
+    // Strategy 3: any file input on the page
+    if (!uploaded && await waitTillElementPresent(driver, fileInputXpath, "XPATH", 5)) {
+      logMsg("Trying generic file input fallback");
+      const fileEl = await getElement(driver, fileInputXpath, "XPATH");
+      if (fileEl) {
+        await fileEl.sendKeys(resolvedPath);
+        uploaded = true;
+        logMsg("Sent resume via generic file input");
+      }
     }
+
+    if (!uploaded) {
+      logMsg("Could not find any file input element to upload the resume.");
+      return { ok: false, lastUpdated: null };
+    }
+
+    // Wait for Naukri to process the upload and update the checkpoint text
+    await sleep(5000);
 
     await waitTillElementPresent(driver, checkpointXpath, "XPATH", 30);
     const checkpoint = await getElement(driver, checkpointXpath, "XPATH");
     if (checkpoint) {
-      const lastUpdatedDate = await checkpoint.getText();
-      lastUpdated = lastUpdatedDate;
-      const today = new Date();
-      const monthNames = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-      ];
-      // Cover both zero-padded ("Jul 04, 2026") and non-padded ("Jul 4, 2026") day formats
-      const todaysDatePadded = `${monthNames[today.getMonth()]} ${String(today.getDate()).padStart(2, "0")}, ${today.getFullYear()}`;
-      const todaysDateUnpadded = `${monthNames[today.getMonth()]} ${today.getDate()}, ${today.getFullYear()}`;
+      const afterDate = await checkpoint.getText();
+      lastUpdated = afterDate;
+      logMsg(`After-upload date: ${afterDate}`);
 
-      if (lastUpdatedDate.includes(todaysDatePadded) || lastUpdatedDate.includes(todaysDateUnpadded)) {
-        logMsg(`Resume Document Upload Successful. Last Updated date = ${lastUpdatedDate}`);
+      // Success if: date text changed, OR date text contains today's IST date
+      const dateChanged = beforeDate !== null && afterDate !== beforeDate;
+      const containsToday = checkContainsToday(afterDate);
+
+      if (dateChanged || containsToday) {
+        logMsg(`Resume Document Upload Successful. Last Updated = ${afterDate}`);
         ok = true;
       } else {
-        logMsg(`Resume Document Upload failed. Last Updated date = ${lastUpdatedDate}`);
+        logMsg(`Resume upload could not be verified. Before=${beforeDate}, After=${afterDate}`);
       }
     } else {
-      logMsg("Resume Document Upload failed. Last Updated date not found.");
+      logMsg("Resume Document Upload: last-updated element not found after upload.");
     }
   } catch (e) {
     logError(e, "uploadResume");
   }
   await sleep(2000);
   return { ok, lastUpdated };
+}
+
+/** Check if a Naukri date string (e.g. "Uploaded on Jul 29, 2026") contains today's IST date. */
+function checkContainsToday(text: string): boolean {
+  const monthNames = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+
+  // Use IST (UTC+5:30) — not the Pi's local system clock
+  const nowIst = new Date(Date.now() + (5.5 * 60 * 60 * 1000));
+  const utcAdjusted = new Date(
+    nowIst.getUTCFullYear(),
+    nowIst.getUTCMonth(),
+    nowIst.getUTCDate(),
+  );
+
+  const month = monthNames[utcAdjusted.getMonth()];
+  const day = utcAdjusted.getDate();
+  const year = utcAdjusted.getFullYear();
+
+  // "Jul 29, 2026" or "Jul 09, 2026"
+  const padded = `${month} ${String(day).padStart(2, "0")}, ${year}`;
+  const unpadded = `${month} ${day}, ${year}`;
+
+  return text.includes(padded) || text.includes(unpadded);
 }
 
 /** Mirrors naukri-ts Logout(). */
