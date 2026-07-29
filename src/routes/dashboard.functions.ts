@@ -14,10 +14,10 @@ import {
   type StoredCredentials,
 } from "@/database/userAutomation";
 import { getUserLogs } from "@/automation/logs";
+import { toUserFacingActivityMessage } from "@/automation/activityMessage";
 import type { PlatformId } from "@/database/schemas";
 import { assertAutomationAccess, getAuthoritativeAccess } from "@/security/accessControl";
-import { enqueueJob, getRecentJobsForUser } from "@/queue/jobs";
-import { istDateString } from "@/queue/types";
+import { enqueueJob, getRecentJobsForUser, cancelPendingJobsForUser } from "@/queue/jobs";
 
 type AuthInput = { sessionToken: string };
 
@@ -65,7 +65,7 @@ export const getDashboardState = createServerFn({ method: "GET" })
       logs: logs.map((l) => ({
         id: l.id,
         ok: l.ok,
-        text: l.message,
+        text: toUserFacingActivityMessage(l.message, l.ok),
         time: new Date(l.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
         ts: new Date(l.created_at).getTime(),
       })),
@@ -190,18 +190,16 @@ export const setAutomationState = createServerFn({ method: "POST" })
     }
     await saveUserAutomation({ ...record, userId, automationState: data.state });
 
-    if (data.state === "running") {
-      await enqueueJob({
-        userId,
-        jobType: "daily_refresh",
-        scheduledFor: istDateString(),
-      });
+    // Start = opt into the morning schedule only. Do NOT enqueue immediately
+    // (avoids spam runs / activity logs before the daily window).
+    if (data.state === "paused" || data.state === "idle") {
+      await cancelPendingJobsForUser(userId);
     }
 
     return { state: data.state, userId };
   });
 
-/** Start an immediate resume refresh (runs on the automation backend). */
+/** Start an immediate resume refresh (runs on the automation backend). Kept for admin/tests; UI no longer calls it. */
 export const runNaukriNow = createServerFn({ method: "POST" })
   .inputValidator((data: AuthInput) => data)
   .handler(async ({ data }) => {

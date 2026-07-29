@@ -5,6 +5,7 @@
 
 import { runNaukriJob } from "./selenium/runNaukriJob";
 import { saveLog } from "./logs";
+import { toUserFacingActivityMessage } from "./activityMessage";
 import { getUserAutomation, saveUserAutomation } from "@/database/userAutomation";
 import { decryptData, isEncryptedSecret } from "@/security/encryption";
 import { getResumePath } from "@/storage/storage";
@@ -25,12 +26,35 @@ export interface RunOptions {
   updatePdf?: boolean;
 }
 
+async function finish(
+  userId: string,
+  platform: PlatformId,
+  ok: boolean,
+  message: string,
+  started: number,
+  writeLog = true,
+): Promise<UserRunResult> {
+  const userMessage = toUserFacingActivityMessage(message, ok);
+  if (writeLog) {
+    await saveLog({ userId, platform, ok, message: userMessage });
+  }
+  return { userId, platform, ok, message: userMessage, durationMs: Date.now() - started };
+}
+
 export async function runPlatformForUser(
   userId: string,
   platform: PlatformId = "naukri",
   options: RunOptions = {},
 ): Promise<UserRunResult> {
   const started = Date.now();
+
+  // Only run for users who explicitly started automation
+  const record = await getUserAutomation(userId);
+  if (record.automationState !== "running") {
+    const message = "Skipped — automation is not active for this account.";
+    // Do not pollute Recent activity for idle/paused accounts with stale queue jobs
+    return finish(userId, platform, false, message, started, false);
+  }
 
   // Server-side subscription gate (cannot be bypassed via localStorage / UI)
   try {
@@ -39,49 +63,48 @@ export async function runPlatformForUser(
       const message =
         access.reason === "suspended"
           ? "Account suspended — automation blocked"
-          : "Free trial ended — upgrade required to run automation";
-      await saveLog({ userId, platform, ok: false, message });
-      return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+          : "Your plan has ended — renew to keep daily refreshes running";
+      return finish(userId, platform, false, message, started);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Subscription check failed";
-    await saveLog({ userId, platform, ok: false, message });
-    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+    return finish(userId, platform, false, message, started);
   }
 
   if (platform !== "naukri") {
-    const message = `${platform} is not available yet`;
-    await saveLog({ userId, platform, ok: false, message });
-    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+    return finish(userId, platform, false, `${platform} is not available yet`, started);
   }
 
-  const record = await getUserAutomation(userId);
   if (!record.credentials) {
-    const message = "No Naukri credentials saved";
-    await saveLog({ userId, platform, ok: false, message });
-    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+    return finish(userId, platform, false, "No Naukri credentials saved", started);
   }
 
   // Never trust DB-stored resume.path as a filesystem path (path traversal risk)
   const resumePath = await getResumePath(userId);
   if (!resumePath) {
-    const message = "No resume uploaded";
-    await saveLog({ userId, platform, ok: false, message });
-    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+    return finish(userId, platform, false, "No resume uploaded", started);
   }
 
   let password = record.credentials.password;
   if (!isEncryptedSecret(password)) {
-    const message = "Stored password is not encrypted — re-save Naukri credentials.";
-    await saveLog({ userId, platform, ok: false, message });
-    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+    return finish(
+      userId,
+      platform,
+      false,
+      "Stored password is not encrypted — re-save Naukri credentials.",
+      started,
+    );
   }
   try {
     password = await decryptData(password);
   } catch {
-    const message = "Could not decrypt Naukri password — re-save credentials.";
-    await saveLog({ userId, platform, ok: false, message });
-    return { userId, platform, ok: false, message, durationMs: Date.now() - started };
+    return finish(
+      userId,
+      platform,
+      false,
+      "Could not decrypt Naukri password — re-save credentials.",
+      started,
+    );
   }
 
   const result = await runNaukriJob({
@@ -93,11 +116,12 @@ export async function runPlatformForUser(
     updatePdf: options.updatePdf ?? true,
   });
 
+  const userMessage = toUserFacingActivityMessage(result.message, result.ok);
   await saveLog({
     userId,
     platform,
     ok: result.ok,
-    message: result.message,
+    message: userMessage,
   });
 
   const platforms = record.platforms.map((p) =>
@@ -119,7 +143,7 @@ export async function runPlatformForUser(
     userId,
     platform,
     ok: result.ok,
-    message: result.message,
+    message: userMessage,
     durationMs: Date.now() - started,
   };
 }

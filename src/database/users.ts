@@ -10,6 +10,7 @@
 import { getClient } from "./connection";
 import type { AccountStatus, SubscriptionStatus, User } from "./schemas";
 import { getSupabaseServer, isSupabaseConfigured } from "@/lib/supabase";
+import { calendarDaysRemainingIst } from "@/lib/istCalendar";
 
 export type { User } from "./schemas";
 
@@ -314,7 +315,7 @@ export async function reconcileUserAccess(user: User): Promise<User> {
     const exp = user.subscription_expire_at
       ? new Date(user.subscription_expire_at).getTime()
       : Number.POSITIVE_INFINITY;
-    if (exp >= Date.now()) return user;
+    if (exp > Date.now()) return user;
     const updated = await updateUser(
       user.id,
       { subscription_status: "expired" },
@@ -359,15 +360,18 @@ export function checkTrialStatus(user: User): { active: boolean; daysRemaining: 
   const expire = new Date(user.trial_expire_at).getTime();
   const now = Date.now();
   const msLeft = expire - now;
-  const days = Math.max(0, Math.ceil(msLeft / (24 * 60 * 60 * 1000)));
   const withinWindow = msLeft > 0;
   const paidActive =
     user.subscription_status === "active" &&
     (!user.subscription_expire_at || new Date(user.subscription_expire_at).getTime() > now);
   const cancelled = user.subscription_status === "cancelled";
+
+  // Calendar days in IST so the trial countdown also drops at midnight
+  const days = withinWindow ? calendarDaysRemainingIst(user.trial_expire_at) : 0;
+
   return {
     active: withinWindow && !paidActive && !cancelled && user.account_status === "active",
-    daysRemaining: withinWindow ? days : 0,
+    daysRemaining: days,
   };
 }
 

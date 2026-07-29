@@ -1,19 +1,23 @@
 /**
  * Subscription helpers — days remaining, renewal warnings.
+ * Days remaining use IST calendar midnights so the countdown drops by 1 each day at 12:00 AM IST.
  */
 
 import type { User } from "@/database/schemas";
 import { checkSubscriptionStatus, checkTrialStatus } from "@/database/users";
+import { calendarDaysRemainingIst } from "@/lib/istCalendar";
 import { SUBSCRIPTION_WARNING_DAYS, planLabel } from "@/payments/plans";
 
-export function getPaidDaysRemaining(user: User): number {
+export { calendarDaysRemainingIst } from "@/lib/istCalendar";
+
+export function getPaidDaysRemaining(user: User, now = new Date()): number {
   if (!user.subscription_expire_at) return 0;
-  const msLeft = new Date(user.subscription_expire_at).getTime() - Date.now();
-  if (msLeft <= 0) return 0;
-  // Only count when we are (or were) on a paid plan window
+  if (new Date(user.subscription_expire_at).getTime() <= now.getTime()) return 0;
+
   const status = checkSubscriptionStatus(user);
   if (status !== "active" && status !== "cancelled") return 0;
-  return Math.max(0, Math.ceil(msLeft / (24 * 60 * 60 * 1000)));
+
+  return calendarDaysRemainingIst(user.subscription_expire_at, now);
 }
 
 export function isSubscriptionEndingSoon(user: User): boolean {

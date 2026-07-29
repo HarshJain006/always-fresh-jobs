@@ -3,21 +3,25 @@
  *
  * - Polls Supabase for pending jobs (survives reboots via lease reclaim)
  * - Runs QUEUE_CONCURRENCY parallel claim loops (default 4 resumes at once)
- * - Start time is DYNAMIC from eligible user count:
- *     minutesNeeded = ceil(users / concurrency) * minutesPerUser + buffer
- *     start = 8:00 AM IST − minutesNeeded
- *   Example: ~27 users @ 4×3 min → starts ~7:40 AM, finishes before 8:00 AM
- * - Recomputes every minute; grows automatically as users increase
+ * - Reclaim runs on a single timer (not per-slot) to avoid stampeding Supabase
+ * - Claim/reclaim use retries for transient `fetch failed` errors
+ * - Start time is DYNAMIC from eligible user count
  *
  * Usage:
- *   npm run worker              — poll forever + dynamic daily enqueue
- *   npm run worker:once         — process one claimed job (or exit if empty)
- *   npm run worker:enqueue-daily — only enqueue today's daily jobs then exit
+ *   npm run worker
+ *   npm run worker:once
+ *   npm run worker:enqueue-daily
  */
 
 import cron from "node-cron";
 import * as os from "node:os";
-import { claimNextJob, completeJob, heartbeatJob, reclaimStaleJobs } from "../src/queue/jobs";
+import {
+  claimNextJob,
+  completeJob,
+  heartbeatJob,
+  reclaimStaleJobs,
+} from "../src/queue/jobs";
+import { isTransientFetchError } from "../src/lib/retry";
 import {
   enqueueDailyJobsForEligibleUsers,
   getQueueConcurrency,
@@ -32,6 +36,7 @@ const once = process.argv.includes("--once");
 const enqueueOnly = process.argv.includes("--enqueue-daily");
 const POLL_MS = Number(process.env.QUEUE_POLL_MS || 5000);
 const LEASE_SECONDS = Number(process.env.QUEUE_LEASE_SECONDS || 900);
+const RECLAIM_MS = Number(process.env.QUEUE_RECLAIM_MS || 60_000);
 const CONCURRENCY = getQueueConcurrency();
 const BASE_WORKER_ID =
   process.env.WORKER_ID || `rpi-${os.hostname()}-${process.pid}`;
@@ -39,6 +44,7 @@ const BASE_WORKER_ID =
 /** Avoid double-enqueue for the same IST calendar day. */
 let lastEnqueuedForDate: string | null = null;
 let lastLoggedPlanKey: string | null = null;
+let reclaimInFlight = false;
 
 async function enqueueDaily(reason: string) {
   const day = istDateString();
@@ -66,8 +72,6 @@ async function maybeEnqueueBySchedule(reason: string): Promise<DailySchedulePlan
 
   if (lastEnqueuedForDate === istDateString()) return plan;
 
-  // Once past today's computed start (e.g. 7:40), enqueue once for the day.
-  // Late boot after 8 AM still catch-up-enqueues so no one is skipped.
   if (isAfterDynamicStart(plan)) {
     await enqueueDaily(reason);
   }
@@ -75,13 +79,37 @@ async function maybeEnqueueBySchedule(reason: string): Promise<DailySchedulePlan
   return plan;
 }
 
+async function safeReclaim(): Promise<void> {
+  if (reclaimInFlight) return;
+  reclaimInFlight = true;
+  try {
+    const reclaimed = await reclaimStaleJobs();
+    if (reclaimed > 0) {
+      console.log(`[worker] Reclaimed ${reclaimed} stale job(s) from crashed workers`);
+    }
+  } catch (err) {
+    console.error(
+      "[worker] reclaim error:",
+      err instanceof Error ? err.message : err,
+    );
+  } finally {
+    reclaimInFlight = false;
+  }
+}
+
 async function processOneJob(workerId: string): Promise<boolean> {
-  const reclaimed = await reclaimStaleJobs();
-  if (reclaimed > 0) {
-    console.log(`[worker] Reclaimed ${reclaimed} stale job(s) from crashed workers`);
+  let job;
+  try {
+    job = await claimNextJob(workerId, LEASE_SECONDS);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[worker] claim failed (${workerId}):`, msg);
+    // Back off harder on transient network issues so we don't stampede
+    const delay = isTransientFetchError(err) ? Math.max(POLL_MS, 8_000) : POLL_MS;
+    await new Promise((r) => setTimeout(r, delay));
+    return false;
   }
 
-  const job = await claimNextJob(workerId, LEASE_SECONDS);
   if (!job) return false;
 
   console.log(
@@ -103,7 +131,14 @@ async function processOneJob(workerId: string): Promise<boolean> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[worker] Job ${job.id} error:`, message);
-    await completeJob(job.id, workerId, false, message);
+    try {
+      await completeJob(job.id, workerId, false, message);
+    } catch (completeErr) {
+      console.error(
+        `[worker] complete failed for ${job.id}:`,
+        completeErr instanceof Error ? completeErr.message : completeErr,
+      );
+    }
   } finally {
     clearInterval(heartbeat);
   }
@@ -130,15 +165,22 @@ async function slotLoop(slot: number) {
 
 async function pollLoop() {
   console.log(
-    `[worker] Queue worker started base=${BASE_WORKER_ID} concurrency=${CONCURRENCY} poll=${POLL_MS}ms lease=${LEASE_SECONDS}s (dynamic morning start)`,
+    `[worker] Queue worker started base=${BASE_WORKER_ID} concurrency=${CONCURRENCY} poll=${POLL_MS}ms lease=${LEASE_SECONDS}s reclaimEvery=${RECLAIM_MS}ms`,
   );
 
-  // Catch-up on boot if we're already past today's computed start
   try {
     await maybeEnqueueBySchedule("startup-catchup");
   } catch (err) {
     console.error("[worker] Startup schedule check failed:", err);
   }
+
+  // Single reclaim loop for the whole process (not per slot)
+  void (async () => {
+    for (;;) {
+      await safeReclaim();
+      await new Promise((r) => setTimeout(r, RECLAIM_MS));
+    }
+  })();
 
   await Promise.all(Array.from({ length: CONCURRENCY }, (_, i) => slotLoop(i + 1)));
 }
@@ -150,11 +192,11 @@ async function main() {
   }
 
   if (once) {
-    const worked = await processOneJob(`${BASE_WORKER_ID}-once`);
-    process.exit(worked ? 0 : 0);
+    await safeReclaim();
+    await processOneJob(`${BASE_WORKER_ID}-once`);
+    process.exit(0);
   }
 
-  // Every minute: recompute start from live user count and enqueue when due
   cron.schedule(
     "* * * * *",
     () => {
@@ -165,7 +207,7 @@ async function main() {
     { timezone: "Asia/Kolkata" },
   );
   console.log(
-    "[worker] Dynamic enqueue enabled — start time = 8:00 AM IST − (ceil(users/concurrency) × 3 min + buffer)",
+    "[worker] Dynamic enqueue enabled — start = 8:00 AM IST − (ceil(users/concurrency) × 3 min + buffer)",
   );
 
   await pollLoop();

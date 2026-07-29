@@ -1,9 +1,12 @@
 /**
  * Queue operations against Supabase. Safe to call from Netlify (enqueue)
  * or from the Raspberry Pi worker (claim / complete).
+ *
+ * All RPCs use retry for transient `fetch failed` / network blips.
  */
 
 import { getSupabaseServer, isSupabaseConfigured } from "@/lib/supabase";
+import { isTransientFetchError, withRetry } from "@/lib/retry";
 import {
   type AutomationJob,
   type JobType,
@@ -67,14 +70,20 @@ export async function enqueueJob(input: EnqueueInput): Promise<{
     scheduled_for: scheduledFor,
   };
 
-  const { data, error } = await getSupabaseServer()
-    .from("automation_jobs")
-    .insert(payload)
-    .select("*")
-    .maybeSingle();
+  const { data, error } = await withRetry("enqueueJob", async () => {
+    const res = await getSupabaseServer()
+      .from("automation_jobs")
+      .insert(payload)
+      .select("*")
+      .maybeSingle();
+    if (res.error && res.error.code !== "23505") {
+      // Retry transient transport errors wrapped as PostgrestError messages
+      if (isTransientFetchError(res.error)) throw new Error(res.error.message);
+    }
+    return res;
+  });
 
   if (error) {
-    // Unique daily job already pending/running
     if (error.code === "23505" && input.jobType === "daily_refresh") {
       const existing = await findActiveDailyJob(input.userId, platform, scheduledFor!);
       return {
@@ -119,10 +128,17 @@ export async function claimNextJob(
   workerId: string,
   leaseSeconds = 900,
 ): Promise<AutomationJob | null> {
-  const { data, error } = await getSupabaseServer().rpc("claim_automation_job", {
-    p_worker_id: workerId,
-    p_lease_seconds: leaseSeconds,
+  const { data, error } = await withRetry("claim_automation_job", async () => {
+    const res = await getSupabaseServer().rpc("claim_automation_job", {
+      p_worker_id: workerId,
+      p_lease_seconds: leaseSeconds,
+    });
+    if (res.error && isTransientFetchError(res.error)) {
+      throw new Error(res.error.message);
+    }
+    return res;
   });
+
   if (error) throw new Error(`claim_automation_job failed: ${error.message}`);
   const rows = (data ?? []) as Record<string, unknown>[];
   if (!rows.length) return null;
@@ -134,16 +150,31 @@ export async function heartbeatJob(
   workerId: string,
   leaseSeconds = 900,
 ): Promise<boolean> {
-  const { data, error } = await getSupabaseServer().rpc("heartbeat_automation_job", {
-    p_job_id: jobId,
-    p_worker_id: workerId,
-    p_lease_seconds: leaseSeconds,
-  });
-  if (error) {
-    console.error("heartbeat_automation_job:", error.message);
+  try {
+    const { data, error } = await withRetry(
+      "heartbeat_automation_job",
+      async () => {
+        const res = await getSupabaseServer().rpc("heartbeat_automation_job", {
+          p_job_id: jobId,
+          p_worker_id: workerId,
+          p_lease_seconds: leaseSeconds,
+        });
+        if (res.error && isTransientFetchError(res.error)) {
+          throw new Error(res.error.message);
+        }
+        return res;
+      },
+      { attempts: 3 },
+    );
+    if (error) {
+      console.error("heartbeat_automation_job:", error.message);
+      return false;
+    }
+    return Boolean(data);
+  } catch (err) {
+    console.error("heartbeat_automation_job:", err instanceof Error ? err.message : err);
     return false;
   }
-  return Boolean(data);
 }
 
 export async function completeJob(
@@ -152,22 +183,75 @@ export async function completeJob(
   ok: boolean,
   message: string,
 ): Promise<void> {
-  const { error } = await getSupabaseServer().rpc("complete_automation_job", {
-    p_job_id: jobId,
-    p_worker_id: workerId,
-    p_ok: ok,
-    p_message: message,
+  const { error } = await withRetry("complete_automation_job", async () => {
+    const res = await getSupabaseServer().rpc("complete_automation_job", {
+      p_job_id: jobId,
+      p_worker_id: workerId,
+      p_ok: ok,
+      p_message: message,
+    });
+    if (res.error && isTransientFetchError(res.error)) {
+      throw new Error(res.error.message);
+    }
+    return res;
   });
   if (error) throw new Error(`complete_automation_job failed: ${error.message}`);
 }
 
+/**
+ * Soft reclaim — never throws to the poll loop. Transient fetch failures are logged and ignored.
+ */
 export async function reclaimStaleJobs(): Promise<number> {
-  const { data, error } = await getSupabaseServer().rpc("reclaim_stale_automation_jobs");
-  if (error) {
-    console.error("reclaim_stale_automation_jobs:", error.message);
+  try {
+    const { data, error } = await withRetry(
+      "reclaim_stale_automation_jobs",
+      async () => {
+        const res = await getSupabaseServer().rpc("reclaim_stale_automation_jobs");
+        if (res.error && isTransientFetchError(res.error)) {
+          throw new Error(res.error.message);
+        }
+        return res;
+      },
+      { attempts: 3, baseDelayMs: 500 },
+    );
+    if (error) {
+      console.error("reclaim_stale_automation_jobs:", error.message);
+      return 0;
+    }
+    return Number(data ?? 0);
+  } catch (err) {
+    console.error(
+      "reclaim_stale_automation_jobs:",
+      err instanceof Error ? err.message : err,
+    );
     return 0;
   }
-  return Number(data ?? 0);
+}
+
+/** Cancel pending/claimed jobs for a user (e.g. when they Stop/Pause). */
+export async function cancelPendingJobsForUser(userId: string): Promise<number> {
+  // Schema allows: pending | claimed | running | completed | failed | dead
+  const { data, error } = await getSupabaseServer()
+    .from("automation_jobs")
+    .update({
+      status: "failed",
+      updated_at: new Date().toISOString(),
+      error: "Cancelled — automation paused or stopped by user.",
+      result_message: "Cancelled — automation paused or stopped by user.",
+      completed_at: new Date().toISOString(),
+      worker_id: null,
+      locked_at: null,
+      lock_expires_at: null,
+    })
+    .eq("user_id", userId)
+    .in("status", ["pending", "claimed"])
+    .select("id");
+
+  if (error) {
+    console.error("cancelPendingJobsForUser:", error.message);
+    return 0;
+  }
+  return data?.length ?? 0;
 }
 
 export async function getRecentJobsForUser(

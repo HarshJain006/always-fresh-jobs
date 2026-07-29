@@ -55,6 +55,14 @@ export function getSupabaseServer(): SupabaseClient {
   }
   serverClient = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (input, init) =>
+        fetch(input, {
+          ...init,
+          // Avoid hanging forever on flaky networks; retries handle transient fails
+          signal: init?.signal ?? AbortSignal.timeout(30_000),
+        }),
+    },
   });
   return serverClient;
 }
