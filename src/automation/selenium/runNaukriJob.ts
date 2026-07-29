@@ -4,10 +4,11 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type { WebDriver } from "selenium-webdriver";
 import { logMsg, logError } from "./logger";
 import { naukriLogin, updateProfile, uploadResume, logout, tearDown } from "./naukri";
-import { logPdfFileDetails } from "./resume";
+import { logPdfFileDetails, updateResume } from "./resume";
 import type { NaukriCredentials } from "./types";
 
 export interface RunNaukriJobInput {
@@ -42,7 +43,7 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
     originalResumePath: input.resumePath,
     naukriLoginUrl: "https://www.naukri.com/nlogin/login",
     naukriProfileUrl: "https://www.naukri.com/mnjuser/profile",
-    headless: input.headless ?? true, // SaaS runs headless
+    headless: input.headless ?? true,
   };
 
   let driver: WebDriver | null = null;
@@ -57,7 +58,12 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
     if (result.status && driver) {
       await updateProfile(driver, creds.mobile);
 
-      const resumePath = creds.originalResumePath;
+      // Stamp PDF so Naukri detects a content change (required for "Uploaded on" to update)
+      const modifiedPath = path.join(
+        path.dirname(creds.originalResumePath),
+        "Naukri_Resume_Updated.pdf",
+      );
+      const resumePath = await updateResume(creds.originalResumePath, modifiedPath);
       await logPdfFileDetails("User resume passed to Naukri upload", resumePath);
 
       const upload = await uploadResume(driver, resumePath, creds.naukriProfileUrl);

@@ -263,54 +263,46 @@ async function saveScreenshot(driver: WebDriver, label: string): Promise<void> {
   }
 }
 
-async function getTextIfPresent(
+async function sendKeysToFileInput(
   driver: WebDriver,
-  xpath: string,
-  timeoutSeconds = 5,
-): Promise<string | null> {
-  if (!(await waitTillElementPresent(driver, xpath, "XPATH", timeoutSeconds))) return null;
-  const el = await getElement(driver, xpath, "XPATH");
-  const text = ((await el?.getText()) || "").trim();
-  return text || null;
-}
-
-async function waitForUploadCompletion(
-  driver: WebDriver,
-  checkpointXpath: string,
-  beforeDate: string | null,
-): Promise<{ afterDate: string | null; statusText: string | null; completed: boolean }> {
-  const uploadStatusXpath =
-    "//*[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'resume') and " +
-    "(contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'success') or " +
-    "contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'uploaded') or " +
-    "contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'updated'))]";
-  const start = Date.now();
-  let afterDate: string | null = null;
-  let statusText: string | null = null;
-
-  while (Date.now() - start < 60_000) {
-    statusText = await getTextIfPresent(driver, uploadStatusXpath, 1);
-    afterDate = await getTextIfPresent(driver, checkpointXpath, 1);
-
-    const dateChanged = beforeDate !== null && afterDate !== null && afterDate !== beforeDate;
-    const movedToToday =
-      afterDate !== null &&
-      checkContainsToday(afterDate) &&
-      (beforeDate === null || !checkContainsToday(beforeDate));
-    const hasSuccess = statusText !== null && /success|uploaded|updated/i.test(statusText);
-    if (dateChanged || movedToToday || hasSuccess) {
-      return { afterDate, statusText, completed: true };
-    }
-
-    await sleep(2000);
+  locator: string,
+  locatorType: "ID" | "XPATH",
+  filePath: string,
+  label: string,
+): Promise<boolean> {
+  const el = await getElement(driver, locator, locatorType);
+  if (!el) {
+    logMsg(`${label}: element not found`);
+    return false;
   }
 
-  return { afterDate, statusText, completed: false };
+  let tag = "";
+  let type = "";
+  try {
+    tag = ((await el.getTagName()) || "").toLowerCase();
+    type = ((await el.getAttribute("type")) || "").toLowerCase();
+  } catch {
+    /* ignore */
+  }
+
+  logMsg(`${label}: tag=${tag || "?"}, type=${type || "?"}`);
+
+  // Only type=file accepts a path. Button-like inputs "succeed" on sendKeys but upload nothing.
+  if (tag === "input" && type && type !== "file") {
+    logMsg(`${label}: skipped — not a file input (type=${type})`);
+    return false;
+  }
+
+  await el.sendKeys(filePath);
+  logMsg(`${label}: sendKeys completed for ${filePath}`);
+  await saveScreenshot(driver, `after_sendkeys_${label.replace(/[^\w.-]+/g, "_")}`);
+  return true;
 }
 
 /**
- * Mirrors naukri-ts UploadResume().
- * Returns ok/lastUpdated so the SaaS worker can write Recent activity.
+ * Mirrors naukri-ts UploadResume() closely.
+ * Critical: try BOTH lazyAttachCV path AND attachCV (not exclusive) — matching the
+ * working backup. Exclusive if/else was skipping #attachCV after a fake uploadCVBtn success.
  */
 export async function uploadResume(
   driver: WebDriver,
@@ -340,89 +332,81 @@ export async function uploadResume(
       await sleep(2000);
     }
 
-    // Read the "last updated" date BEFORE uploading so we can detect a change
     let beforeDate: string | null = null;
     if (await waitTillElementPresent(driver, checkpointXpath, "XPATH", 10)) {
       const beforeEl = await getElement(driver, checkpointXpath, "XPATH");
-      if (beforeEl) beforeDate = await beforeEl.getText();
+      if (beforeEl) beforeDate = ((await beforeEl.getText()) || "").trim();
     }
     logMsg(`Before-upload date: ${beforeDate ?? "(not found)"}`);
 
-    // Try multiple strategies to find the file input and send the resume
-    let uploaded = false;
+    let sentCount = 0;
 
-    // Strategy 1: lazyAttachCV (hidden file input activated by button)
-    if (!uploaded && (await waitTillElementPresent(driver, lazyAttachCVID, "ID", 5))) {
-      logMsg("Found lazyAttachCV — trying uploadCVBtn");
-      const btn = await getElement(driver, uploadCVBtn, "XPATH");
-      if (btn) {
-        await btn.sendKeys(resolvedPath);
-        uploaded = true;
-        logMsg("Sent resume via uploadCVBtn (lazyAttachCV)");
-        await saveScreenshot(driver, "after_sendkeys_lazyAttachCV");
+    // Path A (naukri-ts): if lazyAttachCV exists, try its file input AND/OR uploadCVBtn if it is type=file
+    if (await waitTillElementPresent(driver, lazyAttachCVID, "ID", 5)) {
+      logMsg("Found lazyAttachCV");
+      if (await sendKeysToFileInput(driver, lazyAttachCVID, "ID", resolvedPath, "lazyAttachCV")) {
+        sentCount++;
+      }
+      // naukri-ts also targets uploadCVBtn here — only if it is actually type=file
+      if (await waitTillElementPresent(driver, uploadCVBtn, "XPATH", 3)) {
+        if (await sendKeysToFileInput(driver, uploadCVBtn, "XPATH", resolvedPath, "uploadCVBtn")) {
+          sentCount++;
+        }
       }
     }
 
-    // Strategy 2: attachCV (direct file input)
-    if (!uploaded && (await waitTillElementPresent(driver, attachCVID, "ID", 5))) {
-      logMsg("Found attachCV — sending file directly");
-      const attachEl = await getElement(driver, attachCVID, "ID");
-      if (attachEl) {
-        await attachEl.sendKeys(resolvedPath);
-        uploaded = true;
-        logMsg("Sent resume via attachCV");
-        await saveScreenshot(driver, "after_sendkeys_attachCV");
+    // Path B (naukri-ts): ALWAYS also try attachCV when present (not exclusive with path A)
+    if (await waitTillElementPresent(driver, attachCVID, "ID", 5)) {
+      logMsg("Found attachCV");
+      if (await sendKeysToFileInput(driver, attachCVID, "ID", resolvedPath, "attachCV")) {
+        sentCount++;
       }
     }
 
-    // Strategy 3: any file input on the page
-    if (!uploaded && (await waitTillElementPresent(driver, fileInputXpath, "XPATH", 5))) {
+    // Fallback: any remaining file input
+    if (sentCount === 0 && (await waitTillElementPresent(driver, fileInputXpath, "XPATH", 5))) {
       logMsg("Trying generic file input fallback");
-      const fileEl = await getElement(driver, fileInputXpath, "XPATH");
-      if (fileEl) {
-        await fileEl.sendKeys(resolvedPath);
-        uploaded = true;
-        logMsg("Sent resume via generic file input");
-        await saveScreenshot(driver, "after_sendkeys_generic_file_input");
+      if (await sendKeysToFileInput(driver, fileInputXpath, "XPATH", resolvedPath, "generic_file_input")) {
+        sentCount++;
       }
     }
 
-    if (!uploaded) {
-      logMsg("Could not find any file input element to upload the resume.");
+    if (sentCount === 0) {
+      logMsg("Could not find any usable file input to upload the resume.");
+      await saveScreenshot(driver, "upload_no_file_input");
       return { ok: false, lastUpdated: null };
     }
 
-    const completion = await waitForUploadCompletion(driver, checkpointXpath, beforeDate);
-    logMsg(
-      `Upload completion status: completed=${completion.completed}, statusText=${completion.statusText ?? "(not found)"}`,
-    );
-    await saveScreenshot(driver, "after_upload_completion_wait");
+    logMsg(`File path sent to ${sentCount} input(s). Waiting for Naukri to process…`);
+    await sleep(8000);
+    await saveScreenshot(driver, "after_upload_wait");
 
-    // Refresh once after completion so the verification reads the persisted profile state.
+    // Refresh and verify persisted "Uploaded on" date (false positives from toasts removed)
     await driver.navigate().refresh();
     await sleep(5000);
+    if (await waitTillElementPresent(driver, closeLocator, "XPATH", 5)) {
+      const el = await getElement(driver, closeLocator, "XPATH");
+      await el?.click();
+      await sleep(1000);
+    }
     await saveScreenshot(driver, "after_upload_refresh");
 
     await waitTillElementPresent(driver, checkpointXpath, "XPATH", 30);
     const checkpoint = await getElement(driver, checkpointXpath, "XPATH");
     if (checkpoint) {
-      const afterDate = await checkpoint.getText();
+      const afterDate = ((await checkpoint.getText()) || "").trim();
       lastUpdated = afterDate;
       logMsg(`After-upload date: ${afterDate}`);
 
-      // Success if Naukri reports a persisted date change or an upload-complete signal.
-      const dateChanged = beforeDate !== null && afterDate !== beforeDate;
-      const movedToToday =
-        checkContainsToday(afterDate) && (beforeDate === null || !checkContainsToday(beforeDate));
-      const uploadCompleted =
-        completion.completed && /success|uploaded|updated/i.test(completion.statusText ?? "");
+      const dateChanged = beforeDate !== null && afterDate !== beforeDate && afterDate.length > 0;
+      const isToday = checkContainsToday(afterDate);
 
-      if (dateChanged || movedToToday || uploadCompleted) {
+      if (dateChanged || isToday) {
         logMsg(`Resume Document Upload Successful. Last Updated = ${afterDate}`);
         ok = true;
       } else {
         logMsg(
-          `Resume upload could not be verified. Before=${beforeDate}, After=${afterDate}, statusText=${completion.statusText ?? "(not found)"}`,
+          `Resume upload FAILED verification. Before=${beforeDate}, After=${afterDate} (sendKeys ran but Naukri date did not update)`,
         );
       }
     } else {
