@@ -17,7 +17,6 @@ export default function NaukriForm() {
   const [password, setPassword] = useState("");
   const [mobile, setMobile] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [updatePdf, setUpdatePdf] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -50,7 +49,6 @@ export default function NaukriForm() {
           mobile,
           resumeFileName: file.name,
           resumeData,
-          updatePdf,
         }),
       });
 
@@ -112,19 +110,6 @@ export default function NaukriForm() {
           className="mt-2 w-full"
           required
         />
-      </div>
-
-      <div className="flex items-center gap-3">
-        <input
-          id="updatePdf"
-          type="checkbox"
-          checked={updatePdf}
-          onChange={(e) => setUpdatePdf(e.target.checked)}
-          className="h-4 w-4"
-        />
-        <label htmlFor="updatePdf" className="text-sm">
-          Randomize PDF before upload
-        </label>
       </div>
 
       {error && <div className="rounded-md bg-red-50 p-3 text-red-700">{error}</div>}

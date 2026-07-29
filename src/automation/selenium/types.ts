@@ -4,9 +4,7 @@ export interface NaukriCredentials {
   password: string;
   mobile: string;
   originalResumePath: string;
-  modifiedResumePath: string;
   naukriLoginUrl: string;
   naukriProfileUrl: string;
-  updatePdf: boolean;
   headless: boolean;
 }

@@ -23,7 +23,6 @@ export interface UserRunResult {
 export interface RunOptions {
   /** Defaults to true (SaaS). */
   headless?: boolean;
-  updatePdf?: boolean;
 }
 
 async function finish(
@@ -113,7 +112,6 @@ export async function runPlatformForUser(
     mobile: record.credentials.phone.replace(/\s+/g, ""),
     resumePath,
     headless: options.headless ?? true,
-    updatePdf: options.updatePdf ?? true,
   });
 
   const userMessage = toUserFacingActivityMessage(result.message, result.ok);
@@ -128,7 +126,9 @@ export async function runPlatformForUser(
     p.id === "naukri"
       ? {
           ...p,
-          last: result.ok ? new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : p.last,
+          last: result.ok
+            ? new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+            : p.last,
         }
       : p,
   );
@@ -151,12 +151,15 @@ export async function runPlatformForUser(
 export async function runBatch(userIds: string[], concurrency = 1): Promise<UserRunResult[]> {
   const results: UserRunResult[] = [];
   let cursor = 0;
-  const workers = Array.from({ length: Math.min(concurrency, Math.max(userIds.length, 1)) }, async () => {
-    while (cursor < userIds.length) {
-      const idx = cursor++;
-      results[idx] = await runPlatformForUser(userIds[idx], "naukri");
-    }
-  });
+  const workers = Array.from(
+    { length: Math.min(concurrency, Math.max(userIds.length, 1)) },
+    async () => {
+      while (cursor < userIds.length) {
+        const idx = cursor++;
+        results[idx] = await runPlatformForUser(userIds[idx], "naukri");
+      }
+    },
+  );
   await Promise.all(workers);
   return results;
 }

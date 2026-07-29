@@ -5,11 +5,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import {
-  formatSupabaseError,
-  getSupabaseServer,
-  isSupabaseServerConfigured,
-} from "@/lib/supabase";
+import { createHash } from "node:crypto";
+import { formatSupabaseError, getSupabaseServer, isSupabaseServerConfigured } from "@/lib/supabase";
 import { canUseLocalFilesystem } from "@/lib/runtime";
 import { compressPdfBuffer } from "./compressPdf";
 
@@ -26,6 +23,10 @@ export interface StoredFile {
 
 const BUCKET = "resumes";
 const LATEST_OBJECT = "latest.pdf";
+
+function sha256(buffer: Buffer): string {
+  return createHash("sha256").update(buffer).digest("hex");
+}
 
 function userDir(userId: string): string {
   const base = canUseLocalFilesystem()
@@ -46,6 +47,9 @@ function writeLocalLatest(userId: string, buffer: Buffer): string {
   fs.mkdirSync(dir, { recursive: true });
   const latestPath = path.join(dir, LATEST_OBJECT);
   fs.writeFileSync(latestPath, buffer);
+  console.log(
+    `writeLocalLatest: userId=${userId}, path=${latestPath}, bytes=${buffer.length}, sha256=${sha256(buffer)}`,
+  );
   return latestPath;
 }
 
@@ -111,6 +115,9 @@ export async function uploadResume(
 
   const { buffer, originalBytes, storedBytes, compressed } = await compressPdfBuffer(raw);
   const storagePath = latestStoragePath(userId);
+  console.log(
+    `uploadResume: userId=${userId}, fileName=${displayName}, rawBytes=${raw.length}, storedBytes=${storedBytes}, sha256=${sha256(buffer)}, storagePath=${storagePath}`,
+  );
 
   if (!isSupabaseServerConfigured()) {
     if (!canUseLocalFilesystem()) {
@@ -195,9 +202,9 @@ export async function resumeExists(userId: string): Promise<boolean> {
 
 export async function getResumePath(userId: string): Promise<string | null> {
   const latestPath = path.join(userDir(userId), LATEST_OBJECT);
-  if (fs.existsSync(latestPath)) return latestPath;
-
-  if (!isSupabaseServerConfigured()) return null;
+  if (!isSupabaseServerConfigured()) {
+    return fs.existsSync(latestPath) ? latestPath : null;
+  }
 
   try {
     const { data, error } = await getSupabaseServer()
@@ -206,10 +213,17 @@ export async function getResumePath(userId: string): Promise<string | null> {
     if (error) throw error;
     if (data) {
       const buf = Buffer.from(await data.arrayBuffer());
+      console.log(
+        `getResumePath: downloaded authoritative Supabase resume userId=${userId}, storagePath=${latestStoragePath(userId)}, bytes=${buf.length}, sha256=${sha256(buf)}`,
+      );
       return writeLocalLatest(userId, buf);
     }
   } catch (err) {
     console.error("getResumePath (supabase download):", err);
+    if (fs.existsSync(latestPath)) {
+      fs.rmSync(latestPath, { force: true });
+      console.log(`getResumePath: removed stale local resume cache path=${latestPath}`);
+    }
   }
 
   return null;

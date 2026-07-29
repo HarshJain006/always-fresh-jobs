@@ -1,8 +1,4 @@
 import { WebDriver, Key } from "selenium-webdriver";
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import {
   getElement,
   isElementPresent,
@@ -11,7 +7,7 @@ import {
   loadNaukri,
   tearDown,
 } from "../browser";
-import { logMsg, catchError, randomText, randInt, sleep } from "../utils";
+import { catchError, sleep } from "../utils";
 
 const DEFAULT_NAUKRI_LOGIN_URL = "https://www.naukri.com/nlogin/login";
 const DEFAULT_NAUKRI_PROFILE_URL = "https://www.naukri.com/mnjuser/profile";
@@ -21,8 +17,6 @@ export interface NaukriAutomationConfig {
   password: string;
   mobile: string;
   resumeFilePath: string;
-  updatePdf?: boolean;
-  modifiedResumePath?: string;
   naukriLoginUrl?: string;
   naukriProfileUrl?: string;
 }
@@ -45,13 +39,10 @@ function ci(xpathPart: string): string {
 }
 
 export async function runNaukriAutomation(
-  config: NaukriAutomationConfig
+  config: NaukriAutomationConfig,
 ): Promise<NaukriAutomationResult> {
   const loginUrl = config.naukriLoginUrl || getNaukriLoginUrl();
   const profileUrl = config.naukriProfileUrl || getNaukriProfileUrl();
-  const modifiedResumePath =
-    config.modifiedResumePath ||
-    path.join(path.dirname(config.resumeFilePath), `modified-${path.basename(config.resumeFilePath)}`);
 
   let driver: WebDriver | null = null;
 
@@ -64,11 +55,7 @@ export async function runNaukriAutomation(
 
     await updateProfile(driver, config.mobile);
 
-    const resumePath = config.updatePdf
-      ? await updateResume(config.resumeFilePath, modifiedResumePath)
-      : config.resumeFilePath;
-
-    await uploadResume(driver, resumePath, profileUrl);
+    await uploadResume(driver, config.resumeFilePath, profileUrl);
 
     return { success: true, message: "Naukri automation completed successfully." };
   } catch (error) {
@@ -80,7 +67,7 @@ export async function runNaukriAutomation(
 }
 
 export async function naukriLogin(
-  config: NaukriAutomationConfig & { naukriLoginUrl: string }
+  config: NaukriAutomationConfig & { naukriLoginUrl: string },
 ): Promise<{ status: boolean; driver: WebDriver | null }> {
   let status = false;
   let driver: WebDriver | null = null;
@@ -160,17 +147,10 @@ export async function updateProfile(driver: WebDriver, mobile: string): Promise<
   // ...existing updateProfile code...
 }
 
-export async function updateResume(
-  originalResumePath: string,
-  modifiedResumePath: string
-): Promise<string> {
-  // ...existing updateResume code...
-}
-
 export async function uploadResume(
   driver: WebDriver,
   resumePath: string,
-  profileUrl: string
+  profileUrl: string,
 ): Promise<void> {
   // ...existing uploadResume code...
 }
