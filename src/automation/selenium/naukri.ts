@@ -309,6 +309,147 @@ async function sendKeysToFileInput(
   }
 }
 
+/** XPaths for Naukri "last updated" / "uploaded on" — UI varies by account age/layout. */
+const LAST_UPDATED_XPATHS = [
+  "//*[contains(@class, 'updateOn')]",
+  "//*[contains(@class, 'update-on')]",
+  "//*[contains(@class, 'update_on')]",
+  "//*[contains(@class, 'cvDetails')]//*[contains(text(), 'Uploaded')]",
+  "//*[contains(@class, 'resume')]//*[contains(text(), 'Uploaded on')]",
+  "//*[contains(text(), 'Uploaded on')]",
+  "//*[contains(text(), 'Last updated')]",
+] as const;
+
+async function scrollToResumeSection(driver: WebDriver): Promise<void> {
+  for (const id of ["lazyAttachCV", "attachCV"]) {
+    try {
+      const el = await driver.findElement(By.id(id));
+      await driver.executeScript("arguments[0].scrollIntoView({block:'center'});", el);
+      await sleep(800);
+      return;
+    } catch {
+      /* try next */
+    }
+  }
+  await driver.executeScript("window.scrollTo(0, Math.floor(document.body.scrollHeight * 0.55));");
+  await sleep(500);
+}
+
+async function dismissProfilePopups(driver: WebDriver, closeLocator: string): Promise<void> {
+  if (await waitTillElementPresent(driver, closeLocator, "XPATH", 3)) {
+    const el = await getElement(driver, closeLocator, "XPATH");
+    await el?.click();
+    await sleep(1000);
+  }
+}
+
+/** Try several locators without logging every miss (avoids noisy logs on new-account layouts). */
+async function readLastUpdatedDate(
+  driver: WebDriver,
+  waitSeconds = 0,
+): Promise<string | null> {
+  if (waitSeconds > 0) {
+    const deadline = Date.now() + waitSeconds * 1000;
+    while (Date.now() < deadline) {
+      const found = await readLastUpdatedDateOnce(driver);
+      if (found) return found;
+      await sleep(990);
+    }
+    return await readLastUpdatedFromBody(driver);
+  }
+  const once = await readLastUpdatedDateOnce(driver);
+  return once ?? (await readLastUpdatedFromBody(driver));
+}
+
+async function readLastUpdatedDateOnce(driver: WebDriver): Promise<string | null> {
+  for (const xpath of LAST_UPDATED_XPATHS) {
+    try {
+      const el = await driver.findElement(By.xpath(xpath));
+      const text = ((await el.getText()) || "").trim();
+      if (
+        text.length > 0 &&
+        (/uploaded/i.test(text) || /updated/i.test(text) || /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/.test(text))
+      ) {
+        return text;
+      }
+    } catch {
+      /* try next locator */
+    }
+  }
+  return null;
+}
+
+/** Fallback when structured locators miss — common on first-upload / alternate profile layouts. */
+async function readLastUpdatedFromBody(driver: WebDriver): Promise<string | null> {
+  try {
+    const bodyText = await driver.findElement(By.tagName("body")).getText();
+    const uploaded = bodyText.match(/Uploaded on\s+[A-Za-z]{3}\s+\d{1,2},\s+\d{4}/i);
+    if (uploaded) return uploaded[0].trim();
+    const lastUpdated = bodyText.match(/Last updated[:\s]+[A-Za-z]{3}\s+\d{1,2},\s+\d{4}/i);
+    if (lastUpdated) return lastUpdated[0].trim();
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function verifyUploadDate(beforeDate: string | null, afterDate: string): boolean {
+  const dateChanged =
+    beforeDate !== null && afterDate !== beforeDate && afterDate.length > 0;
+  const isToday = checkContainsToday(afterDate);
+  // First-ever upload: no prior date on page, but today's date appears after sendKeys
+  const firstUpload = beforeDate === null && isToday;
+  return dateChanged || isToday || firstUpload;
+}
+
+/**
+ * Multi-phase verification — upload path is unchanged; only how we confirm success.
+ * Phase 1: wait on current page (matches naukri-ts, works when DOM updates in-place).
+ * Phase 2: refresh + retry (existing accounts where date only updates after reload).
+ * Phase 3: re-open profile + scroll + body-text fallback (new-account layouts).
+ */
+async function verifyResumeUpload(
+  driver: WebDriver,
+  profileUrl: string,
+  beforeDate: string | null,
+  closeLocator: string,
+): Promise<{ ok: boolean; lastUpdated: string | null; via: string }> {
+  // Phase 1 — no refresh (naukri-ts behaviour)
+  await dismissProfilePopups(driver, closeLocator);
+  await scrollToResumeSection(driver);
+  let afterDate = await readLastUpdatedDate(driver, 15);
+  if (afterDate && verifyUploadDate(beforeDate, afterDate)) {
+    return { ok: true, lastUpdated: afterDate, via: "in-place DOM" };
+  }
+
+  // Phase 2 — refresh then re-check (unchanged path for established accounts)
+  logMsg("In-place verification inconclusive — refreshing profile page…");
+  await driver.navigate().refresh();
+  await sleep(5000);
+  await dismissProfilePopups(driver, closeLocator);
+  await scrollToResumeSection(driver);
+  afterDate = await readLastUpdatedDate(driver, 20);
+  if (afterDate && verifyUploadDate(beforeDate, afterDate)) {
+    return { ok: true, lastUpdated: afterDate, via: "after refresh" };
+  }
+
+  // Phase 3 — full re-navigation + body-text fallback (new accounts / alternate UI)
+  logMsg("Post-refresh verification inconclusive — re-opening profile…");
+  await driver.get(profileUrl);
+  await sleep(4000);
+  await dismissProfilePopups(driver, closeLocator);
+  await scrollToResumeSection(driver);
+  afterDate = await readLastUpdatedDate(driver, 15);
+  if (afterDate && verifyUploadDate(beforeDate, afterDate)) {
+    return { ok: true, lastUpdated: afterDate, via: "re-navigation" };
+  }
+
+  if (afterDate) {
+    return { ok: false, lastUpdated: afterDate, via: "date unchanged" };
+  }
+  return { ok: false, lastUpdated: null, via: "not found" };
+}
+
 /**
  * Mirrors naukri-ts UploadResume().
  *
@@ -329,7 +470,6 @@ export async function uploadResume(
     const lazyAttachCVID = "lazyAttachCV";
     const uploadCVBtn = "//*[contains(@class, 'upload')]//input[@value='Update resume']";
     const fileInputXpath = "//input[@type='file']";
-    const checkpointXpath = "//*[contains(@class, 'updateOn')]";
     const closeLocator = "//*[contains(@class, 'crossIcon')]";
     const resolvedPath = path.resolve(resumePath);
 
@@ -345,10 +485,8 @@ export async function uploadResume(
     }
 
     let beforeDate: string | null = null;
-    if (await waitTillElementPresent(driver, checkpointXpath, "XPATH", 10)) {
-      const beforeEl = await getElement(driver, checkpointXpath, "XPATH");
-      if (beforeEl) beforeDate = ((await beforeEl.getText()) || "").trim();
-    }
+    await scrollToResumeSection(driver);
+    beforeDate = await readLastUpdatedDate(driver, 5);
     logMsg(`Before-upload date: ${beforeDate ?? "(not found)"}`);
 
     let sentCount = 0;
@@ -407,34 +545,20 @@ export async function uploadResume(
     logMsg(`File path sent to ${sentCount} file input(s). Waiting for Naukri to process…`);
     await sleep(8000);
 
-    await driver.navigate().refresh();
-    await sleep(5000);
-    if (await waitTillElementPresent(driver, closeLocator, "XPATH", 5)) {
-      const el = await getElement(driver, closeLocator, "XPATH");
-      await el?.click();
-      await sleep(1000);
-    }
+    const verified = await verifyResumeUpload(driver, profileUrl, beforeDate, closeLocator);
+    lastUpdated = verified.lastUpdated;
+    ok = verified.ok;
 
-    await waitTillElementPresent(driver, checkpointXpath, "XPATH", 30);
-    const checkpoint = await getElement(driver, checkpointXpath, "XPATH");
-    if (checkpoint) {
-      const afterDate = ((await checkpoint.getText()) || "").trim();
-      lastUpdated = afterDate;
-      logMsg(`After-upload date: ${afterDate}`);
-
-      const dateChanged = beforeDate !== null && afterDate !== beforeDate && afterDate.length > 0;
-      const isToday = checkContainsToday(afterDate);
-
-      if (dateChanged || isToday) {
-        logMsg(`Resume Document Upload Successful. Last Updated = ${afterDate}`);
-        ok = true;
-      } else {
-        logMsg(
-          `Resume upload FAILED verification. Before=${beforeDate}, After=${afterDate} (sendKeys ran but Naukri date did not update)`,
-        );
-      }
+    if (ok) {
+      logMsg(
+        `Resume Document Upload Successful (${verified.via}). Last Updated = ${lastUpdated ?? "—"}`,
+      );
+    } else if (lastUpdated) {
+      logMsg(
+        `Resume upload FAILED verification. Before=${beforeDate ?? "(not found)"}, After=${lastUpdated} (${verified.via})`,
+      );
     } else {
-      logMsg("Resume Document Upload: last-updated element not found after upload.");
+      logMsg(`Resume Document Upload: last-updated date not found (${verified.via}).`);
     }
   } catch (e) {
     logError(e, "uploadResume");
