@@ -252,7 +252,9 @@ function screenshotPath(label: string): string {
   return path.join(dir, `${stamp}_${safeLabel}.png`);
 }
 
+/** Screenshots are opt-in only (NAUKRI_SCREENSHOTS=1) — off for daily production to save disk. */
 async function saveScreenshot(driver: WebDriver, label: string): Promise<void> {
+  if (process.env.NAUKRI_SCREENSHOTS !== "1") return;
   try {
     const filePath = screenshotPath(label);
     const image = await driver.takeScreenshot();
@@ -263,6 +265,10 @@ async function saveScreenshot(driver: WebDriver, label: string): Promise<void> {
   }
 }
 
+/**
+ * Send a file path only to a real <input type="file">.
+ * Returns false (does not throw) for non-file elements so callers can try the next locator.
+ */
 async function sendKeysToFileInput(
   driver: WebDriver,
   locator: string,
@@ -270,39 +276,46 @@ async function sendKeysToFileInput(
   filePath: string,
   label: string,
 ): Promise<boolean> {
-  const el = await getElement(driver, locator, locatorType);
-  if (!el) {
-    logMsg(`${label}: element not found`);
-    return false;
-  }
-
-  let tag = "";
-  let type = "";
   try {
-    tag = ((await el.getTagName()) || "").toLowerCase();
-    type = ((await el.getAttribute("type")) || "").toLowerCase();
-  } catch {
-    /* ignore */
-  }
+    const el = await getElement(driver, locator, locatorType);
+    if (!el) {
+      logMsg(`${label}: element not found`);
+      return false;
+    }
 
-  logMsg(`${label}: tag=${tag || "?"}, type=${type || "?"}`);
+    let tag = "";
+    let type = "";
+    try {
+      tag = ((await el.getTagName()) || "").toLowerCase();
+      type = ((await el.getAttribute("type")) || "").toLowerCase();
+    } catch {
+      /* ignore */
+    }
 
-  // Only type=file accepts a path. Button-like inputs "succeed" on sendKeys but upload nothing.
-  if (tag === "input" && type && type !== "file") {
-    logMsg(`${label}: skipped — not a file input (type=${type})`);
+    logMsg(`${label}: tag=${tag || "?"}, type=${type || "?"}`);
+
+    // lazyAttachCV is often a <div> trigger — never sendKeys to it
+    if (tag !== "input" || type !== "file") {
+      logMsg(`${label}: skipped — not an <input type="file">`);
+      return false;
+    }
+
+    await el.sendKeys(filePath);
+    logMsg(`${label}: sendKeys completed for ${filePath}`);
+    return true;
+  } catch (e) {
+    logMsg(`${label}: sendKeys failed — ${e instanceof Error ? e.message : String(e)}`);
     return false;
   }
-
-  await el.sendKeys(filePath);
-  logMsg(`${label}: sendKeys completed for ${filePath}`);
-  await saveScreenshot(driver, `after_sendkeys_${label.replace(/[^\w.-]+/g, "_")}`);
-  return true;
 }
 
 /**
- * Mirrors naukri-ts UploadResume() closely.
- * Critical: try BOTH lazyAttachCV path AND attachCV (not exclusive) — matching the
- * working backup. Exclusive if/else was skipping #attachCV after a fake uploadCVBtn success.
+ * Mirrors naukri-ts UploadResume().
+ *
+ * lazyAttachCV is usually a <div> (presence signal only). Actual upload goes to:
+ *   1) uploadCVBtn file input (when lazyAttachCV is present), and/or
+ *   2) #attachCV file input
+ * Both paths are attempted (not exclusive), matching the working backup.
  */
 export async function uploadResume(
   driver: WebDriver,
@@ -324,7 +337,6 @@ export async function uploadResume(
     logMsg(`Navigating to profile: ${profileUrl}`);
     await driver.get(profileUrl);
     await sleep(3000);
-    await saveScreenshot(driver, "before_upload_profile");
 
     if (await waitTillElementPresent(driver, closeLocator, "XPATH", 10)) {
       const el = await getElement(driver, closeLocator, "XPATH");
@@ -341,21 +353,37 @@ export async function uploadResume(
 
     let sentCount = 0;
 
-    // Path A (naukri-ts): if lazyAttachCV exists, try its file input AND/OR uploadCVBtn if it is type=file
+    // Path A (naukri-ts): lazyAttachCV present → sendKeys to uploadCVBtn (the file input near it)
     if (await waitTillElementPresent(driver, lazyAttachCVID, "ID", 5)) {
-      logMsg("Found lazyAttachCV");
-      if (await sendKeysToFileInput(driver, lazyAttachCVID, "ID", resolvedPath, "lazyAttachCV")) {
+      logMsg("Found lazyAttachCV (presence signal) — targeting uploadCVBtn / nested file inputs");
+
+      // Click the div if needed to reveal the file input (lazy-loaded UI)
+      try {
+        const lazyEl = await getElement(driver, lazyAttachCVID, "ID");
+        const tag = ((await lazyEl?.getTagName()) || "").toLowerCase();
+        if (lazyEl && tag === "div") {
+          await driver.executeScript("arguments[0].scrollIntoView({block:'center'});", lazyEl);
+          await sleep(500);
+          await lazyEl.click();
+          logMsg("Clicked lazyAttachCV div to reveal file input");
+          await sleep(1500);
+        }
+      } catch (e) {
+        logMsg(`lazyAttachCV click skipped: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      if (await sendKeysToFileInput(driver, uploadCVBtn, "XPATH", resolvedPath, "uploadCVBtn")) {
         sentCount++;
       }
-      // naukri-ts also targets uploadCVBtn here — only if it is actually type=file
-      if (await waitTillElementPresent(driver, uploadCVBtn, "XPATH", 3)) {
-        if (await sendKeysToFileInput(driver, uploadCVBtn, "XPATH", resolvedPath, "uploadCVBtn")) {
-          sentCount++;
-        }
+      // Also try any file input inside/near lazyAttachCV
+      const nestedFile =
+        `//*[@id='${lazyAttachCVID}']//input[@type='file'] | //input[@id='${lazyAttachCVID}' and @type='file']`;
+      if (await sendKeysToFileInput(driver, nestedFile, "XPATH", resolvedPath, "lazyAttachCV_nested_file")) {
+        sentCount++;
       }
     }
 
-    // Path B (naukri-ts): ALWAYS also try attachCV when present (not exclusive with path A)
+    // Path B (naukri-ts): ALWAYS try #attachCV when present
     if (await waitTillElementPresent(driver, attachCVID, "ID", 5)) {
       logMsg("Found attachCV");
       if (await sendKeysToFileInput(driver, attachCVID, "ID", resolvedPath, "attachCV")) {
@@ -363,7 +391,7 @@ export async function uploadResume(
       }
     }
 
-    // Fallback: any remaining file input
+    // Fallback: first visible file input on the page
     if (sentCount === 0 && (await waitTillElementPresent(driver, fileInputXpath, "XPATH", 5))) {
       logMsg("Trying generic file input fallback");
       if (await sendKeysToFileInput(driver, fileInputXpath, "XPATH", resolvedPath, "generic_file_input")) {
@@ -372,16 +400,13 @@ export async function uploadResume(
     }
 
     if (sentCount === 0) {
-      logMsg("Could not find any usable file input to upload the resume.");
-      await saveScreenshot(driver, "upload_no_file_input");
+      logMsg("Could not find any usable <input type='file'> to upload the resume.");
       return { ok: false, lastUpdated: null };
     }
 
-    logMsg(`File path sent to ${sentCount} input(s). Waiting for Naukri to process…`);
+    logMsg(`File path sent to ${sentCount} file input(s). Waiting for Naukri to process…`);
     await sleep(8000);
-    await saveScreenshot(driver, "after_upload_wait");
 
-    // Refresh and verify persisted "Uploaded on" date (false positives from toasts removed)
     await driver.navigate().refresh();
     await sleep(5000);
     if (await waitTillElementPresent(driver, closeLocator, "XPATH", 5)) {
@@ -389,7 +414,6 @@ export async function uploadResume(
       await el?.click();
       await sleep(1000);
     }
-    await saveScreenshot(driver, "after_upload_refresh");
 
     await waitTillElementPresent(driver, checkpointXpath, "XPATH", 30);
     const checkpoint = await getElement(driver, checkpointXpath, "XPATH");
