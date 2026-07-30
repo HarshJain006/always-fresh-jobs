@@ -1,2 +1,7 @@
 User-agent: *
 Allow: /
+
+Disallow: /dashboard
+Disallow: /api/
+
+Sitemap: https://dailyresume.in/sitemap.xml

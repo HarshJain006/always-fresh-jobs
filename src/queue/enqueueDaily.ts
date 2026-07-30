@@ -20,6 +20,8 @@ export interface EnqueueDailyResult {
   enqueued: number;
   skipped: number;
   alreadyQueued: number;
+  /** Users whose resume already refreshed successfully today */
+  alreadyDone: number;
   errors: string[];
 }
 
@@ -204,6 +206,7 @@ export async function enqueueDailyJobsForEligibleUsers(
     enqueued: 0,
     skipped: 0,
     alreadyQueued: 0,
+    alreadyDone: 0,
     errors: [],
   };
 
@@ -221,7 +224,8 @@ export async function enqueueDailyJobsForEligibleUsers(
         scheduledFor,
       });
 
-      if (q.alreadyQueued) result.alreadyQueued++;
+      if (q.alreadyDone) result.alreadyDone++;
+      else if (q.alreadyQueued) result.alreadyQueued++;
       else result.enqueued++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

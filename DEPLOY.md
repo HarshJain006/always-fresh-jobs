@@ -29,6 +29,7 @@ In Supabase → SQL Editor, run:
 3. `supabase/migrations/004_automation_jobs_queue.sql` ← **job queue**
 4. `supabase/migrations/005_security_lockdown.sql` ← **RLS lockdown**
 5. `supabase/migrations/006_subscription_plans.sql` ← **plans**
+6. `supabase/migrations/007_daily_job_once_per_day.sql` ← **no re-upload after daily success**
 
 Confirm tables `automation_jobs`, `automation_logs`, `user_automation` exist.
 

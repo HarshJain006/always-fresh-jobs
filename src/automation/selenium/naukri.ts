@@ -335,11 +335,22 @@ async function scrollToResumeSection(driver: WebDriver): Promise<void> {
   await sleep(500);
 }
 
+/** Quiet popup dismiss — missing close icon is normal, not an error. */
 async function dismissProfilePopups(driver: WebDriver, closeLocator: string): Promise<void> {
-  if (await waitTillElementPresent(driver, closeLocator, "XPATH", 3)) {
-    const el = await getElement(driver, closeLocator, "XPATH");
-    await el?.click();
-    await sleep(1000);
+  try {
+    const locator = By.xpath(closeLocator);
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline) {
+      if (await isElementPresent(driver, locator)) {
+        const el = await driver.findElement(locator);
+        await el.click();
+        await sleep(1000);
+        return;
+      }
+      await sleep(400);
+    }
+  } catch {
+    /* popup not present — ignore */
   }
 }
 

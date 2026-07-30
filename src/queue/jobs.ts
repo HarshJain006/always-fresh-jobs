@@ -50,6 +50,8 @@ export async function enqueueJob(input: EnqueueInput): Promise<{
   ok: boolean;
   job: AutomationJob | null;
   alreadyQueued?: boolean;
+  /** True when today's daily refresh already completed successfully. */
+  alreadyDone?: boolean;
   message: string;
 }> {
   if (!isSupabaseConfigured()) {
@@ -59,6 +61,49 @@ export async function enqueueJob(input: EnqueueInput): Promise<{
   const platform = input.platform ?? "naukri";
   const scheduledFor =
     input.jobType === "daily_refresh" ? input.scheduledFor ?? istDateString() : null;
+
+  // Daily refresh: never create a second job for the same IST day if one already
+  // succeeded or is still in-flight (prevents Pi restart re-uploads).
+  if (input.jobType === "daily_refresh" && scheduledFor) {
+    const existing = await findDailyJobForDay(input.userId, platform, scheduledFor);
+    if (existing) {
+      if (existing.status === "completed") {
+        return {
+          ok: true,
+          job: existing,
+          alreadyQueued: true,
+          alreadyDone: true,
+          message: "Today's resume refresh already completed.",
+        };
+      }
+      if (
+        existing.status === "pending" ||
+        existing.status === "claimed" ||
+        existing.status === "running"
+      ) {
+        return {
+          ok: true,
+          job: existing,
+          alreadyQueued: true,
+          message: "Your daily refresh is already scheduled for today.",
+        };
+      }
+      // failed / dead — only skip if it was a real attempt; cancelled jobs may re-queue
+      const cancelled =
+        (existing.error || existing.result_message || "")
+          .toLowerCase()
+          .includes("cancelled");
+      if (!cancelled) {
+        return {
+          ok: true,
+          job: existing,
+          alreadyQueued: true,
+          message: "Today's refresh already ran (previous attempt did not succeed).",
+        };
+      }
+      // Cancelled earlier today → fall through and insert a fresh pending job
+    }
+  }
 
   const payload = {
     user_id: input.userId,
@@ -84,13 +129,17 @@ export async function enqueueJob(input: EnqueueInput): Promise<{
   });
 
   if (error) {
-    if (error.code === "23505" && input.jobType === "daily_refresh") {
-      const existing = await findActiveDailyJob(input.userId, platform, scheduledFor!);
+    if (error.code === "23505" && input.jobType === "daily_refresh" && scheduledFor) {
+      const existing = await findDailyJobForDay(input.userId, platform, scheduledFor);
       return {
         ok: true,
         job: existing,
         alreadyQueued: true,
-        message: "Your daily refresh is already scheduled for today.",
+        alreadyDone: existing?.status === "completed",
+        message:
+          existing?.status === "completed"
+            ? "Today's resume refresh already completed."
+            : "Your daily refresh is already scheduled for today.",
       };
     }
     throw new Error(`Failed to enqueue job: ${error.message}`);
@@ -107,21 +156,27 @@ export async function enqueueJob(input: EnqueueInput): Promise<{
   };
 }
 
-async function findActiveDailyJob(
+/** Any daily_refresh row for this user/platform/IST day (any status). */
+async function findDailyJobForDay(
   userId: string,
   platform: string,
   scheduledFor: string,
 ): Promise<AutomationJob | null> {
-  const { data } = await getSupabaseServer()
+  const { data, error } = await getSupabaseServer()
     .from("automation_jobs")
     .select("*")
     .eq("user_id", userId)
     .eq("platform", platform)
     .eq("job_type", "daily_refresh")
     .eq("scheduled_for", scheduledFor)
-    .in("status", ["pending", "claimed", "running"])
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
-  return data ? rowToJob(data) : null;
+  if (error) {
+    console.error("findDailyJobForDay:", error.message);
+    return null;
+  }
+  return data ? rowToJob(data as Record<string, unknown>) : null;
 }
 
 export async function claimNextJob(
@@ -215,15 +270,23 @@ export async function reclaimStaleJobs(): Promise<number> {
       { attempts: 3, baseDelayMs: 500 },
     );
     if (error) {
-      console.error("reclaim_stale_automation_jobs:", error.message);
+      if (isTransientFetchError(error)) {
+        console.warn("reclaim_stale_automation_jobs: temporary network issue — will retry");
+      } else {
+        console.error("reclaim_stale_automation_jobs:", error.message);
+      }
       return 0;
     }
     return Number(data ?? 0);
   } catch (err) {
-    console.error(
-      "reclaim_stale_automation_jobs:",
-      err instanceof Error ? err.message : err,
-    );
+    if (isTransientFetchError(err)) {
+      console.warn("reclaim_stale_automation_jobs: temporary network issue — will retry");
+    } else {
+      console.error(
+        "reclaim_stale_automation_jobs:",
+        err instanceof Error ? err.message : err,
+      );
+    }
     return 0;
   }
 }

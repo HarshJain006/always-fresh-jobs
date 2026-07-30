@@ -41,6 +41,48 @@ let lastEnqueuedForDate: string | null = null;
 let lastLoggedPlanKey: string | null = null;
 let reclaimInFlight = false;
 
+/**
+ * Shared cooldown when Supabase is briefly unreachable (common on Pi Wi‑Fi).
+ * All 4 slots honor this so we don't stampede a flaky link with parallel claims.
+ */
+let networkCooldownUntil = 0;
+let consecutiveTransientClaims = 0;
+let lastTransientClaimLogAt = 0;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function waitOutNetworkCooldown(): Promise<void> {
+  const wait = networkCooldownUntil - Date.now();
+  if (wait > 0) await sleep(wait);
+}
+
+function noteTransientNetworkFailure(context: string): number {
+  consecutiveTransientClaims += 1;
+  const backoffMs = Math.min(
+    120_000,
+    8_000 * 2 ** Math.min(consecutiveTransientClaims - 1, 4),
+  );
+  networkCooldownUntil = Date.now() + backoffMs;
+
+  const now = Date.now();
+  // At most one warn every 60s — idle evening polls should not fill the journal
+  if (now - lastTransientClaimLogAt >= 60_000) {
+    console.warn(
+      `[worker] Supabase briefly unreachable (${context}) — backing off ${Math.round(backoffMs / 1000)}s. ` +
+        `Already-finished jobs are fine; polling will resume automatically.`,
+    );
+    lastTransientClaimLogAt = now;
+  }
+  return backoffMs;
+}
+
+function clearTransientNetworkFailure(): void {
+  consecutiveTransientClaims = 0;
+  networkCooldownUntil = 0;
+}
+
 async function enqueueDaily(reason: string) {
   const day = istDateString();
   if (lastEnqueuedForDate === day) {
@@ -48,10 +90,20 @@ async function enqueueDaily(reason: string) {
     return null;
   }
 
-  console.log(`[worker] Enqueueing daily jobs for ${day} (${reason})…`);
+  console.log(`[worker] Checking Supabase & enqueueing daily jobs for ${day} (${reason})…`);
   const result = await enqueueDailyJobsForEligibleUsers(day);
   lastEnqueuedForDate = day;
-  console.log("[worker] Enqueue result:", result);
+
+  if (result.enqueued === 0 && (result.alreadyDone > 0 || result.alreadyQueued > 0)) {
+    console.log(
+      `[worker] No new uploads needed for ${day}: ` +
+        `${result.alreadyDone} already completed today, ` +
+        `${result.alreadyQueued} already queued/attempted, ` +
+        `${result.skipped} skipped. Restart will not re-upload.`,
+    );
+  } else {
+    console.log("[worker] Enqueue result:", result);
+  }
   return result;
 }
 
@@ -76,29 +128,43 @@ async function maybeEnqueueBySchedule(reason: string): Promise<DailySchedulePlan
 
 async function safeReclaim(): Promise<void> {
   if (reclaimInFlight) return;
+  if (Date.now() < networkCooldownUntil) return;
   reclaimInFlight = true;
   try {
     const reclaimed = await reclaimStaleJobs();
     if (reclaimed > 0) {
       console.log(`[worker] Reclaimed ${reclaimed} stale job(s) from crashed workers`);
     }
+    clearTransientNetworkFailure();
   } catch (err) {
-    console.error("[worker] reclaim error:", err instanceof Error ? err.message : err);
+    if (isTransientFetchError(err)) {
+      noteTransientNetworkFailure("reclaim");
+    } else {
+      console.error("[worker] reclaim error:", err instanceof Error ? err.message : err);
+    }
   } finally {
     reclaimInFlight = false;
   }
 }
 
 async function processOneJob(workerId: string): Promise<boolean> {
+  await waitOutNetworkCooldown();
+
   let job;
   try {
     job = await claimNextJob(workerId, LEASE_SECONDS);
+    clearTransientNetworkFailure();
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[worker] claim failed (${workerId}):`, msg);
-    // Back off harder on transient network issues so we don't stampede
-    const delay = isTransientFetchError(err) ? Math.max(POLL_MS, 8_000) : POLL_MS;
-    await new Promise((r) => setTimeout(r, delay));
+    if (isTransientFetchError(err)) {
+      const backoffMs = noteTransientNetworkFailure(`claim ${workerId}`);
+      await sleep(backoffMs);
+      return false;
+    }
+    console.error(
+      `[worker] claim failed (${workerId}):`,
+      err instanceof Error ? err.message : String(err),
+    );
+    await sleep(POLL_MS);
     return false;
   }
 
