@@ -157,7 +157,7 @@ export async function enqueueJob(input: EnqueueInput): Promise<{
 }
 
 /** Any daily_refresh row for this user/platform/IST day (any status). */
-async function findDailyJobForDay(
+export async function findDailyJobForDay(
   userId: string,
   platform: string,
   scheduledFor: string,
@@ -177,6 +177,36 @@ async function findDailyJobForDay(
     return null;
   }
   return data ? rowToJob(data as Record<string, unknown>) : null;
+}
+
+/** Count today's daily_refresh jobs in Supabase (used on Pi startup). */
+export async function summarizeDailyJobsForDate(scheduledFor: string): Promise<{
+  total: number;
+  completed: number;
+  inFlight: number;
+  failed: number;
+}> {
+  const { data, error } = await getSupabaseServer()
+    .from("automation_jobs")
+    .select("status")
+    .eq("job_type", "daily_refresh")
+    .eq("scheduled_for", scheduledFor);
+
+  if (error) {
+    console.error("summarizeDailyJobsForDate:", error.message);
+    return { total: 0, completed: 0, inFlight: 0, failed: 0 };
+  }
+
+  let completed = 0;
+  let inFlight = 0;
+  let failed = 0;
+  for (const row of data ?? []) {
+    const status = String((row as { status: string }).status);
+    if (status === "completed") completed++;
+    else if (status === "pending" || status === "claimed" || status === "running") inFlight++;
+    else if (status === "failed" || status === "dead") failed++;
+  }
+  return { total: data?.length ?? 0, completed, inFlight, failed };
 }
 
 export async function claimNextJob(

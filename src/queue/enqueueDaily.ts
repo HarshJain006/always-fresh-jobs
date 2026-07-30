@@ -12,7 +12,7 @@
 
 import { listActiveAutomationUsers } from "@/database/userAutomation";
 import { getAuthoritativeAccess } from "@/security/accessControl";
-import { enqueueJob } from "@/queue/jobs";
+import { enqueueJob, findDailyJobForDay } from "@/queue/jobs";
 import { istDateString } from "@/queue/types";
 
 export interface EnqueueDailyResult {
@@ -176,6 +176,57 @@ export async function countEligibleDailyUsers(): Promise<number> {
 export async function planTodaysEnqueue(): Promise<DailySchedulePlan> {
   const eligibleUsers = await countEligibleDailyUsers();
   return computeDailySchedule(eligibleUsers);
+}
+
+/** Check Supabase before enqueue — used on Pi startup to avoid re-uploading after reboot. */
+export async function getDailyEnqueueStatus(
+  scheduledFor = istDateString(),
+): Promise<{
+  scheduledFor: string;
+  eligible: number;
+  withJob: number;
+  completed: number;
+  inFlight: number;
+  /** Every eligible user already has a daily job row for today */
+  allAccountedFor: boolean;
+}> {
+  const active = await listActiveAutomationUsers();
+  let eligible = 0;
+  let withJob = 0;
+  let completed = 0;
+  let inFlight = 0;
+
+  for (const u of active) {
+    if (!(await isUserEligibleForDaily(u))) continue;
+    eligible++;
+
+    const existing = await findDailyJobForDay(u.userId, "naukri", scheduledFor);
+    if (!existing) continue;
+
+    const cancelled = (existing.error || existing.result_message || "")
+      .toLowerCase()
+      .includes("cancelled");
+    if (cancelled) continue;
+
+    withJob++;
+    if (existing.status === "completed") completed++;
+    if (
+      existing.status === "pending" ||
+      existing.status === "claimed" ||
+      existing.status === "running"
+    ) {
+      inFlight++;
+    }
+  }
+
+  return {
+    scheduledFor,
+    eligible,
+    withJob,
+    completed,
+    inFlight,
+    allAccountedFor: eligible > 0 && withJob >= eligible,
+  };
 }
 
 /**

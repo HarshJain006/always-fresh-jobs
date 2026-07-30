@@ -1,6 +1,6 @@
--- Prevent a second daily_refresh after today's job already completed.
--- (Previous unique index only covered pending/claimed/running, so Pi restarts
---  could insert a new job and re-upload resumes that already succeeded today.)
+-- One daily_refresh row per user/platform/IST day once it has run or finished.
+-- Prevents Pi restarts from inserting a second job after status = completed.
+-- (Previously the unique index only covered pending | claimed | running.)
 
 drop index if exists public.automation_jobs_daily_unique;
 
@@ -9,6 +9,3 @@ create unique index if not exists automation_jobs_daily_unique
   where job_type = 'daily_refresh'
     and scheduled_for is not null
     and status in ('pending', 'claimed', 'running', 'completed');
-
--- failed / dead rows are intentionally excluded so a cancelled job can be
--- re-queued later the same day if the user starts automation again.

@@ -30,6 +30,7 @@ In Supabase → SQL Editor, run:
 4. `supabase/migrations/005_security_lockdown.sql` ← **RLS lockdown**
 5. `supabase/migrations/006_subscription_plans.sql` ← **plans**
 6. `supabase/migrations/007_daily_job_once_per_day.sql` ← **no re-upload after daily success**
+7. `supabase/migrations/008_email_reminder_events.sql` ← **SMTP reminder tracking**
 
 Confirm tables `automation_jobs`, `automation_logs`, `user_automation` exist.
 
@@ -37,9 +38,26 @@ Confirm tables `automation_jobs`, `automation_logs`, `user_automation` exist.
 
 ## 2. Netlify (frontend)
 
-Already deployed. Keep these env vars set (including live Razorpay keys).
+Already deployed. Keep these env vars set (including live Razorpay keys + SMTP keys).
 
 Dashboard actions only enqueue / update state — Selenium never runs on Netlify.
+
+### SMTP env (Netlify)
+
+```bash
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=<brevo-smtp-login>
+SMTP_PASS=<brevo-smtp-key>
+SMTP_FROM_EMAIL=no-reply@dailyresume.in
+SMTP_FROM_NAME=DailyResume
+```
+
+Reminder behavior:
+- Send confirmation email when subscription is purchased.
+- Send ending-soon email when paid plan enters the last 7 days.
+- After trial/subscription expiry, send repurchase reminders every 3 days (max 5 sends).
 
 ---
 

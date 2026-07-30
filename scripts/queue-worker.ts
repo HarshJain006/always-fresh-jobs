@@ -16,10 +16,11 @@
 import "./load-env";
 import cron from "node-cron";
 import * as os from "node:os";
-import { claimNextJob, completeJob, heartbeatJob, reclaimStaleJobs } from "../src/queue/jobs";
+import { claimNextJob, completeJob, heartbeatJob, reclaimStaleJobs, summarizeDailyJobsForDate } from "../src/queue/jobs";
 import { isTransientFetchError } from "../src/lib/retry";
 import {
   enqueueDailyJobsForEligibleUsers,
+  getDailyEnqueueStatus,
   getQueueConcurrency,
   isAfterDynamicStart,
   planTodaysEnqueue,
@@ -81,6 +82,36 @@ function noteTransientNetworkFailure(context: string): number {
 function clearTransientNetworkFailure(): void {
   consecutiveTransientClaims = 0;
   networkCooldownUntil = 0;
+}
+
+/** On Pi boot: read Supabase so we don't enqueue / re-upload after today's run. */
+async function bootstrapEnqueueStateFromSupabase(): Promise<void> {
+  const day = istDateString();
+  try {
+    const status = await getDailyEnqueueStatus(day);
+    const summary = await summarizeDailyJobsForDate(day);
+
+    if (status.allAccountedFor) {
+      lastEnqueuedForDate = day;
+      console.log(
+        `[worker] ${day}: all ${status.eligible} eligible user(s) already have today's job in Supabase ` +
+          `(${status.completed} completed, ${status.inFlight} in-flight) — restart will not re-upload.`,
+      );
+      return;
+    }
+
+    if (summary.completed > 0) {
+      console.log(
+        `[worker] ${day}: ${summary.completed} resume(s) already uploaded today in Supabase ` +
+          `(${summary.inFlight} still in queue). Only missing users will be enqueued.`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[worker] Could not read today's job status from Supabase:",
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 async function enqueueDaily(reason: string) {
@@ -229,6 +260,7 @@ async function pollLoop() {
   );
 
   try {
+    await bootstrapEnqueueStateFromSupabase();
     await maybeEnqueueBySchedule("startup-catchup");
   } catch (err) {
     console.error("[worker] Startup schedule check failed:", err);

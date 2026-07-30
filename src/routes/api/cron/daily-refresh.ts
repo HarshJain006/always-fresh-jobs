@@ -5,6 +5,7 @@ import {
   planTodaysEnqueue,
 } from "@/queue/enqueueDaily";
 import { isProductionRuntime } from "@/lib/production";
+import { runReminderSweep } from "@/notifications/reminderEmails";
 
 /**
  * Netlify / external cron: enqueue daily jobs into Supabase (no Selenium).
@@ -40,22 +41,35 @@ export const Route = createFileRoute("/api/cron/daily-refresh")({
         const plan = await planTodaysEnqueue();
 
         if (!force && !isWithinDynamicEnqueueWindow(plan)) {
+          const reminders = await runReminderSweep().catch((err) => {
+            console.error("[mail] reminder sweep failed:", err);
+            return { sent: 0, attempted: 0 };
+          });
           return Response.json({
             skipped: true,
             reason: `Outside dynamic window (start ${plan.startLabel} IST, finish by ${plan.finishLabel}).`,
             plan,
+            reminders,
           });
         }
 
         const result = await enqueueDailyJobsForEligibleUsers();
-        return Response.json({ ok: true, queued: true, plan, ...result });
+        const reminders = await runReminderSweep().catch((err) => {
+          console.error("[mail] reminder sweep failed:", err);
+          return { sent: 0, attempted: 0 };
+        });
+        return Response.json({ ok: true, queued: true, plan, ...result, reminders });
       },
       POST: async ({ request }) => {
         const denied = authorizeCron(request);
         if (denied) return denied;
         const plan = await planTodaysEnqueue();
         const result = await enqueueDailyJobsForEligibleUsers();
-        return Response.json({ ok: true, queued: true, plan, ...result });
+        const reminders = await runReminderSweep().catch((err) => {
+          console.error("[mail] reminder sweep failed:", err);
+          return { sent: 0, attempted: 0 };
+        });
+        return Response.json({ ok: true, queued: true, plan, ...result, reminders });
       },
     },
   },

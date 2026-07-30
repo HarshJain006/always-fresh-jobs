@@ -12,6 +12,7 @@ import {
 } from "@/payments/razorpay";
 import { getPlan, type PaidPlanId } from "@/payments/plans";
 import { getAuthoritativeAccess } from "@/security/accessControl";
+import { sendSubscriptionPurchasedEmail } from "@/notifications/reminderEmails";
 
 const PAID_IDS = new Set<PaidPlanId>(["premium_1m", "premium_3m", "premium_6m"]);
 
@@ -92,6 +93,9 @@ export const verifyAndActivatePaidPlan = createServerFn({ method: "POST" })
     }
 
     await activateSubscription(user.id, data.planId);
+    void sendSubscriptionPurchasedEmail(user.id).catch((err) =>
+      console.error("[mail] subscription purchase email failed:", err),
+    );
     const access = await getAuthoritativeAccess(user.id);
 
     return {
