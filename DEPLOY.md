@@ -31,6 +31,7 @@ In Supabase → SQL Editor, run:
 5. `supabase/migrations/006_subscription_plans.sql` ← **plans**
 6. `supabase/migrations/007_daily_job_once_per_day.sql` ← **no re-upload after daily success**
 7. `supabase/migrations/008_email_reminder_events.sql` ← **SMTP reminder tracking**
+8. `supabase/migrations/009_trial_5_days_and_trial_ending.sql` ← **5-day trial + trial ending emails**
 
 Confirm tables `automation_jobs`, `automation_logs`, `user_automation` exist.
 
@@ -55,9 +56,30 @@ SMTP_FROM_NAME=DailyResume
 ```
 
 Reminder behavior:
+- New accounts get a **5-day free trial** (DB trigger + app `TRIAL_DAYS`).
+- **Before trial ends:** emails on the **second-last day** and **last day** (2 sends).
 - Send confirmation email when subscription is purchased.
-- Send ending-soon email when paid plan enters the last 7 days.
-- After trial/subscription expiry, send repurchase reminders every 3 days (max 5 sends).
+- **Before subscription ends:** up to 5 emails, 3 days apart (12 / 9 / 6 / 3 / 0 days left).
+- **After trial ends:** up to 5 repurchase emails, 3 days apart.
+- **After subscription ends:** up to 5 repurchase emails, 3 days apart.
+- All sends are tracked in `email_reminder_events` (idempotent — no duplicates).
+
+Run migration `009_trial_5_days_and_trial_ending.sql` after `008_email_reminder_events.sql`.
+
+### Reminder cron (required — once per day)
+
+Use [cron-job.org](https://cron-job.org), EasyCron, or Netlify scheduled trigger:
+
+```http
+GET https://dailyresume.in/api/cron/reminders
+x-cron-secret: <CRON_SECRET>
+```
+
+Recommended time: **10:00 AM IST** daily (`30 4 * * *` UTC).
+
+Response example: `{ "ok": true, "sent": 2, "attempted": 5, "skipped": 3 }`
+
+Run migrations `008` and `009` in Supabase before enabling.
 
 ---
 

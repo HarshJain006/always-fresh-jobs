@@ -1,6 +1,6 @@
 /**
  * Subscription / free-trial access — server is source of truth.
- * Trial is permanently bound to google_user_id (one 3-day window per Google account).
+ * Trial is permanently bound to google_user_id (one free-trial window per Google account).
  * Paid access ends exactly at subscription_expire_at.
  */
 

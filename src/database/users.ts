@@ -11,10 +11,11 @@ import { getClient } from "./connection";
 import type { AccountStatus, SubscriptionStatus, User } from "./schemas";
 import { getSupabaseServer, isSupabaseConfigured } from "@/lib/supabase";
 import { calendarDaysRemainingIst } from "@/lib/istCalendar";
+import { TRIAL_DAYS } from "@/lib/trial";
 
 export type { User } from "./schemas";
 
-export const TRIAL_DAYS = 3;
+export { TRIAL_DAYS };
 
 /** Fields clients must never be able to invent or extend. */
 const BILLING_FIELDS = [
@@ -152,7 +153,7 @@ export async function ensureUserRecord(user: User): Promise<User> {
     return reconcileUserAccess(byGoogle);
   }
 
-  // First time this Google id is seen on the server — bind a new 3-day trial (ignore client dates).
+  // First time this Google id is seen on the server — bind a new free trial (ignore client dates).
   const trial = buildNewTrialFields();
   const insertRow = {
     id: user.id,

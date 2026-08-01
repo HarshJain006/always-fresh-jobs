@@ -4,6 +4,7 @@ import { Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { completeGoogleLogin, getCurrentUser, getSessionToken, startGoogleLogin } from "@/auth/googleAuth";
+import { TRIAL_DAYS } from "@/lib/trial";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/login")({
       { title: "Sign in — DailyResume" },
       {
         name: "description",
-        content: "Sign in to DailyResume with Google to start your free 3-day trial.",
+        content: `Sign in to DailyResume with Google to start your free ${TRIAL_DAYS}-day trial.`,
       },
     ],
   }),
@@ -79,7 +80,7 @@ function LoginPage() {
         <Card className="w-full border-border/60 bg-surface p-8 shadow-elegant">
           <h1 className="text-3xl">Welcome back</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in with Google to continue. New here? We&apos;ll start your 3-day free trial
+            Sign in with Google to continue. New here? We&apos;ll start your {TRIAL_DAYS}-day free trial
             automatically.
           </p>
           <Button

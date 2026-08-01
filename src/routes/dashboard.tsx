@@ -485,6 +485,11 @@ function Dashboard() {
                   <Button type="submit" disabled={busy} className="bg-gradient-primary shadow-glow">
                     {credentialsSaved ? "Update credentials" : "Save credentials"}
                   </Button>
+                  <p className="mt-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-warning-foreground">
+                    <span className="font-semibold">Important:</span> Double-check that your Naukri
+                    password is correct. A wrong password will fail daily refresh and show up in
+                    Recent activity.
+                  </p>
                 </div>
               </form>
             </div>
@@ -837,7 +842,6 @@ function StepCard({
 function SubscriptionBanner({
   daysRemaining,
   reason,
-  subscriptionExpireAt,
   subscriptionPlan,
 }: {
   daysRemaining: number;
@@ -845,15 +849,6 @@ function SubscriptionBanner({
   subscriptionExpireAt: string | null;
   subscriptionPlan: string | null;
 }) {
-  const expireLabel = subscriptionExpireAt
-    ? new Date(subscriptionExpireAt).toLocaleDateString("en-IN", {
-        timeZone: "Asia/Kolkata",
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      })
-    : null;
-
   const planName =
     subscriptionPlan === "premium_3m"
       ? "3 Months"
@@ -875,7 +870,7 @@ function SubscriptionBanner({
                 Premium ends in {daysRemaining} day{daysRemaining === 1 ? "" : "s"}
               </div>
               <div className="text-sm text-muted-foreground">
-                {planName} · Valid until {expireLabel}. Renew now so daily refreshes don’t stop.
+                {planName} · Renew now so daily refreshes don’t stop.
               </div>
             </div>
           </div>
@@ -893,8 +888,8 @@ function SubscriptionBanner({
             <div className="font-semibold">Premium active · {planName}</div>
             <div className="text-sm opacity-90">
               {daysRemaining > 0
-                ? `${daysRemaining} day${daysRemaining === 1 ? "" : "s"} left · until ${expireLabel}`
-                : `Valid until ${expireLabel}`}
+                ? `${daysRemaining} day${daysRemaining === 1 ? "" : "s"} left`
+                : "Ends today"}
             </div>
           </div>
         </div>

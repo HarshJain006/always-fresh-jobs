@@ -5,6 +5,7 @@ import {
   planTodaysEnqueue,
 } from "@/queue/enqueueDaily";
 import { isProductionRuntime } from "@/lib/production";
+import { authorizeCronRequest } from "@/lib/cronAuth";
 import { runReminderSweep } from "@/notifications/reminderEmails";
 
 /**
@@ -13,27 +14,15 @@ import { runReminderSweep } from "@/notifications/reminderEmails";
  *
  * Prefer the Pi worker for dynamic scheduling. This endpoint is a backup:
  * GET only enqueues inside today's computed window; POST always enqueues.
+ *
+ * For expiry reminder emails, use /api/cron/reminders (daily).
  */
-function authorizeCron(request: Request): Response | null {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || secret.length < 16) {
-    return Response.json(
-      { error: "CRON_SECRET is not configured on the server." },
-      { status: 503 },
-    );
-  }
-  const header = request.headers.get("x-cron-secret");
-  if (header !== secret) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  return null;
-}
 
 export const Route = createFileRoute("/api/cron/daily-refresh")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const denied = authorizeCron(request);
+        const denied = authorizeCronRequest(request);
         if (denied) return denied;
 
         const url = new URL(request.url);
@@ -61,7 +50,7 @@ export const Route = createFileRoute("/api/cron/daily-refresh")({
         return Response.json({ ok: true, queued: true, plan, ...result, reminders });
       },
       POST: async ({ request }) => {
-        const denied = authorizeCron(request);
+        const denied = authorizeCronRequest(request);
         if (denied) return denied;
         const plan = await planTodaysEnqueue();
         const result = await enqueueDailyJobsForEligibleUsers();

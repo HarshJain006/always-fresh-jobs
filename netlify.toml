@@ -12,4 +12,5 @@
 
 # Optional: hit this from Netlify Scheduled Functions / external cron at 8 AM IST
 # Headers: x-cron-secret: <CRON_SECRET>
-# /api/cron/daily-refresh — only enqueues jobs into Supabase
+# /api/cron/daily-refresh — enqueues resume jobs into Supabase
+# /api/cron/reminders    — sends trial/subscription expiry emails (run daily)

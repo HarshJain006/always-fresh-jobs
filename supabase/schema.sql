@@ -31,7 +31,7 @@ create table if not exists public.users (
 create index if not exists users_google_user_id_idx on public.users (google_user_id);
 create index if not exists users_email_idx on public.users (email);
 
--- Anti-fraud: force real 3-day trial on INSERT; lock trial clocks + google_user_id on UPDATE
+-- Anti-fraud: force real 5-day trial on INSERT; lock trial clocks + google_user_id on UPDATE
 -- (also in supabase/migrations/003_lock_trial_fields.sql)
 create or replace function public.force_trial_on_insert()
 returns trigger
@@ -39,7 +39,7 @@ language plpgsql
 as $$
 begin
   new.trial_started_at := now();
-  new.trial_expire_at := now() + interval '3 days';
+  new.trial_expire_at := now() + interval '5 days';
   new.trial_used := true;
   if new.subscription_status is null
      or new.subscription_status not in ('trial', 'active', 'expired', 'cancelled') then

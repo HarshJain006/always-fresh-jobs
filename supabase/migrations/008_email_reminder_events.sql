@@ -10,6 +10,7 @@ create table if not exists public.email_reminder_events (
   reminder_type text not null check (
     reminder_type in (
       'trial_expired_repurchase',
+      'trial_ending',
       'subscription_expired_repurchase',
       'subscription_purchased',
       'subscription_ending'
@@ -29,6 +30,9 @@ create unique index if not exists email_reminder_events_unique
 
 create index if not exists email_reminder_events_user_created_idx
   on public.email_reminder_events (user_id, created_at desc);
+
+create index if not exists email_reminder_events_sent_lookup_idx
+  on public.email_reminder_events (user_id, reminder_type, context_key, status, sequence_no desc);
 
 alter table public.email_reminder_events enable row level security;
 

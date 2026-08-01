@@ -11,6 +11,7 @@ import {
   type AppUser,
 } from "@/auth/googleAuth";
 import { PAID_PLANS, type PaidPlanId } from "@/payments/plans";
+import { TRIAL_DAYS } from "@/lib/trial";
 import { subscriptionSummary } from "@/payments/subscriptionStatus";
 import {
   createRazorpayOrder,
@@ -27,7 +28,7 @@ export const Route = createFileRoute("/pricing")({
       {
         name: "description",
         content:
-          "Plans from ₹199/month. 3 months ₹699 · 6 months ₹899. Keep your resume fresh every day.",
+          "Plans from ₹199/month. 3 months ₹549 · 6 months ₹899. Keep your resume fresh every day.",
       },
     ],
   }),
@@ -99,7 +100,7 @@ function Pricing() {
           <div className="text-xs font-semibold uppercase tracking-widest text-primary">Pricing</div>
           <h1 className="mt-3 text-4xl sm:text-5xl">Stay visible every day</h1>
           <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-            Start with a 3-day free trial. Pick a Premium plan — access ends exactly when your plan
+            Start with a {TRIAL_DAYS}-day free trial. Pick a Premium plan — access ends exactly when your plan
             ends, with a reminder in the last 7 days.
           </p>
         </div>
@@ -125,7 +126,7 @@ function Pricing() {
             <div className="text-sm font-medium text-muted-foreground">Free trial</div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-4xl">₹0</span>
-              <span className="text-muted-foreground">for 3 days</span>
+              <span className="text-muted-foreground">for {TRIAL_DAYS} days</span>
             </div>
             <ul className="mt-5 space-y-2 text-sm">
               <Row>Upload one resume</Row>
