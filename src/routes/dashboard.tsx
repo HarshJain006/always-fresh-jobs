@@ -181,8 +181,8 @@ function Dashboard() {
 
 
   function applyServerUserId(serverUserId: string | undefined) {
-    if (!serverUserId || serverUserId === user.id) return;
-    const updated = { ...user, id: serverUserId };
+    if (!user || !serverUserId || serverUserId === user.id) return;
+    const updated: AppUser = { ...user, id: serverUserId };
     updateSessionUser(updated);
     setUser(updated);
   }
