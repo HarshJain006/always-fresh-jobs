@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 
 type MailInput = {
   to: string;
@@ -18,9 +18,9 @@ function smtpEnabled(): boolean {
 }
 export const isSmtpConfigured = smtpEnabled;
 
-let cachedTransporter: nodemailer.Transporter | null = null;
+let cachedTransporter: Transporter | null = null;
 
-function getTransporter(): nodemailer.Transporter {
+function getTransporter(): Transporter {
   if (cachedTransporter) return cachedTransporter;
 
   const host = process.env.SMTP_HOST;

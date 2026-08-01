@@ -45,7 +45,11 @@ export function loadRazorpayCheckoutScript(): Promise<void> {
   });
 }
 
-export function openRazorpayCheckout(options: RazorpayCheckoutOptions): Promise<{
+export function openRazorpayCheckout(
+  options: Omit<RazorpayCheckoutOptions, "handler" | "modal"> & {
+    modal?: RazorpayCheckoutOptions["modal"];
+  },
+): Promise<{
   razorpay_payment_id: string;
   razorpay_order_id: string;
   razorpay_signature: string;
