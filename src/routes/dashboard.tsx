@@ -16,6 +16,7 @@ import {
   Square,
   Play,
   KeyRound,
+  Gauge, // ADDED (ATS Score feature)
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -558,7 +559,27 @@ function Dashboard() {
                 </div>
               </label>
             )}
+
+            {/* ADDED (ATS Score feature): entry point to the ATS checker */}
+            <div className="mt-3 flex flex-col gap-3 rounded-lg border border-primary/25 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                  <Gauge className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="text-sm font-medium">Check your ATS score</div>
+                  <div className="text-xs text-muted-foreground">
+                    See how tracking systems rank your resume — 2 free checks on trial, unlimited on
+                    a paid plan.
+                  </div>
+                </div>
+              </div>
+              <Button asChild size="sm" variant="outline" className="shrink-0">
+                <Link to="/ats">Check score</Link>
+              </Button>
+            </div>
           </StepCard>
+
 
           <StepCard
             n={2}
