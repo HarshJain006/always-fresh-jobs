@@ -165,23 +165,3 @@ create policy "resumes_storage_all"
   using (bucket_id = 'resumes')
   with check (bucket_id = 'resumes');
 
--- ADDED (ATS Score feature): resume ATS check history + free-trial quota source of truth
-create table if not exists public.ats_checks (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users (id) on delete cascade,
-  score int not null check (score between 0 and 100),
-  file_name text null,
-  used_job_description boolean not null default false,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists ats_checks_user_created_idx
-  on public.ats_checks (user_id, created_at desc);
-
-grant select, insert on public.ats_checks to authenticated;
-grant all on public.ats_checks to service_role;
-
-alter table public.ats_checks enable row level security;
-
-drop policy if exists "ats_checks_all" on public.ats_checks;
-create policy "ats_checks_all" on public.ats_checks for all using (true) with check (true);
