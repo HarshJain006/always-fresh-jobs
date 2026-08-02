@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Zap } from "lucide-react";
+import { Download, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser, AUTH_CHANGE_EVENT, STORAGE_KEY, type AppUser } from "@/auth/googleAuth";
 
@@ -32,12 +32,29 @@ export function Header() {
           <span className="text-lg tracking-tight">DailyResume</span>
         </Link>
         <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
-          <a href="/#features" className="hover:text-foreground">Features</a>
-          <a href="/#how" className="hover:text-foreground">How it works</a>
-          <a href="/#platforms" className="hover:text-foreground">Platforms</a>
-          <Link to="/pricing" className="hover:text-foreground">Pricing</Link>
+          <a href="/#features" className="hover:text-foreground">
+            Features
+          </a>
+          <a href="/#how" className="hover:text-foreground">
+            How it works
+          </a>
+          <a href="/#platforms" className="hover:text-foreground">
+            Platforms
+          </a>
+          <Link to="/pricing" className="hover:text-foreground">
+            Pricing
+          </Link>
+          <Link to="/download" className="hover:text-foreground">
+            Download
+          </Link>
         </nav>
         <div className="flex items-center gap-2">
+          <Button asChild variant="ghost" size="sm" className="md:hidden">
+            <Link to="/download">
+              <Download className="h-4 w-4" />
+              <span className="sr-only">Download app</span>
+            </Link>
+          </Button>
           {user ? (
             <Button asChild size="sm" className="bg-gradient-primary shadow-glow">
               <Link to="/dashboard">Dashboard</Link>

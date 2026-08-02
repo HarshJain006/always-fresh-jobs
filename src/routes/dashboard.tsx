@@ -11,11 +11,10 @@ import {
   LogOut,
   Crown,
   Rocket,
-  Circle,
   Pause,
   Square,
   Play,
-  KeyRound,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -39,7 +38,7 @@ export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
       { title: "Dashboard — DailyResume" },
-      { name: "description", content: "Set up your daily resume refresh in three simple steps." },
+      { name: "description", content: "Set up your daily resume refresh in four simple steps." },
     ],
   }),
   component: Dashboard,
@@ -160,15 +159,28 @@ function Dashboard() {
   }, [navigate]);
 
   const anyConnected = platforms.some((p) => p.connected);
-  const step1Done = !!resume;
-  const step2Done = anyConnected;
-  const step3Done = state !== "idle" && step1Done && step2Done;
+  const stepCredDone = credentialsSaved;
+  const stepResumeDone = !!resume;
+  const stepConnectDone = anyConnected;
+  const stepStartDone = state === "running" || state === "paused";
 
-  const currentStep = useMemo(() => {
-    if (!step1Done) return 1;
-    if (!step2Done) return 2;
-    return 3;
-  }, [step1Done, step2Done]);
+  const setupSteps = useMemo(
+    () => [
+      { n: 1, done: stepCredDone, href: "#step-credentials" },
+      { n: 2, done: stepResumeDone, href: "#step-resume" },
+      { n: 3, done: stepConnectDone, href: "#step-connect" },
+      { n: 4, done: stepStartDone, href: "#step-start" },
+    ],
+    [stepCredDone, stepResumeDone, stepConnectDone, stepStartDone],
+  );
+
+  const currentSetupStep = useMemo(() => {
+    if (!stepCredDone) return 1;
+    if (!stepResumeDone) return 2;
+    if (!stepConnectDone) return 3;
+    if (!stepStartDone) return 4;
+    return 4;
+  }, [stepCredDone, stepResumeDone, stepConnectDone, stepStartDone]);
 
   if (!user || loading) {
     return (
@@ -315,9 +327,9 @@ function Dashboard() {
       toast.error("Your trial has expired. Please upgrade to start.");
       return;
     }
-    if (!step1Done) return toast.error("Upload your resume first.");
-    if (!credentialsSaved) return toast.error("Save Naukri credentials first.");
-    if (!step2Done) return toast.error("Connect Naukri first.");
+    if (!stepCredDone) return toast.error("Save Naukri credentials first.");
+    if (!stepResumeDone) return toast.error("Upload your resume first.");
+    if (!stepConnectDone) return toast.error("Connect Naukri first.");
     setBusy(true);
     try {
       await setAutomationState({ data: { sessionToken: requireClientSessionToken(), state: "running" } });
@@ -366,23 +378,26 @@ function Dashboard() {
     }
   }
 
-  const progressPct = step3Done ? 100 : step2Done ? 66 : step1Done ? 33 : 8;
-
   return (
     <div className="min-h-screen bg-background pb-16">
       <Toaster />
 
-      <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
+      <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl sm:text-4xl">Hi, {user.name.split(" ")[0]}</h1>
-            <p className="mt-1 text-muted-foreground">
-              Let’s get your resume refreshing daily — in three quick steps.
-            </p>
+            <p className="mt-1 text-muted-foreground">Set up daily resume refresh.</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleLogout}>
-            <LogOut className="mr-2 h-4 w-4" /> Sign out
-          </Button>
+          <div className="flex flex-wrap items-center justify-end gap-1">
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/download">
+                <Download className="mr-2 h-4 w-4" /> Download app
+              </Link>
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleLogout}>
+              <LogOut className="mr-2 h-4 w-4" /> Sign out
+            </Button>
+          </div>
         </div>
 
         <SubscriptionBanner
@@ -393,10 +408,33 @@ function Dashboard() {
           subscriptionPlan={subscriptionPlan}
         />
 
-        <Card className="mt-6 border-border/60 p-6">
+        {/* Mobile: horizontal number rail */}
+        <div className="mt-8 lg:hidden">
+          <SetupStepper steps={setupSteps} current={currentSetupStep} orientation="horizontal" />
+        </div>
+
+        <div className="mt-8 flex gap-8 lg:gap-10">
+          {/* Desktop: left number rail */}
+          <aside className="hidden shrink-0 lg:block">
+            <div className="sticky top-10">
+              <SetupStepper steps={setupSteps} current={currentSetupStep} orientation="vertical" />
+            </div>
+          </aside>
+
+          <div className="min-w-0 flex-1 space-y-4">
+        <Card id="step-credentials" className="scroll-mt-8 border-border/60 p-6">
           <div className="flex items-start gap-4">
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-              <KeyRound className="h-4 w-4" />
+            <div
+              className={[
+                "grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold",
+                stepCredDone
+                  ? "bg-success text-success-foreground"
+                  : currentSetupStep === 1
+                    ? "bg-gradient-primary text-primary-foreground shadow-glow"
+                    : "bg-secondary text-secondary-foreground",
+              ].join(" ")}
+            >
+              {stepCredDone ? <CheckCircle2 className="h-4 w-4" /> : 1}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-3">
@@ -408,26 +446,13 @@ function Dashboard() {
                 )}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                We use these to sign in and refresh your profile daily. Stored encrypted — only used
-                for your automatic refreshes.
+                Stored encrypted — used only for your automatic refreshes.
               </p>
               <div className="mt-4 rounded-lg border border-border/60 bg-surface-muted/40 p-4">
                 <p className="text-sm font-medium">Signed in to Naukri with Google?</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  You can still use DailyResume — set a password on Naukri first, then enter that
-                  email and password here.
+                  Set a password on Naukri (Forgot Password / OTP), then enter it below.
                 </p>
-                <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-muted-foreground">
-                  <li>Log out of Naukri if you are currently signed in.</li>
-                  <li>
-                    On the Naukri login page, choose{" "}
-                    <span className="font-medium text-foreground">Forgot Password</span> or{" "}
-                    <span className="font-medium text-foreground">Use OTP to Login</span>.
-                  </li>
-                  <li>Verify your email with the OTP Naukri sends you.</li>
-                  <li>Set a new password for your account.</li>
-                  <li>Enter that email and password in the form below.</li>
-                </ol>
               </div>
               <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={handleSaveCredentials}>
                 <div className="grid gap-1.5">
@@ -500,26 +525,14 @@ function Dashboard() {
           </div>
         </Card>
 
-        <div className="mt-8">
-          <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-            <span>Setup progress</span>
-            <span className="tabular-nums">{progressPct}%</span>
-          </div>
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-            <div
-              className="h-full rounded-full bg-gradient-primary transition-all duration-500"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-        </div>
-
-        <div className="mt-10 space-y-4">
+        <div id="step-resume" className="scroll-mt-8 space-y-4">
           <StepCard
-            n={1}
+            n={2}
             title="Upload your resume"
-            desc="One PDF only (max 5 MB). Uploading again replaces the previous file — we keep and compress only the latest version."
-            done={step1Done}
-            active={currentStep === 1}
+            desc="One PDF only (max 5 MB). Uploading again replaces the previous file."
+            done={stepResumeDone}
+            active={currentSetupStep === 2}
+            locked={!stepCredDone}
           >
             {resume ? (
               <div className="flex items-center justify-between rounded-lg border border-border/60 bg-surface-muted/40 p-3">
@@ -538,28 +551,33 @@ function Dashboard() {
                       accept="application/pdf"
                       className="hidden"
                       onChange={handleUpload}
-                      disabled={busy}
+                      disabled={busy || !stepCredDone}
                     />
-                    <Button asChild size="sm" variant="outline" disabled={busy}>
+                    <Button asChild size="sm" variant="outline" disabled={busy || !stepCredDone}>
                       <span>
                         <Upload className="mr-2 h-4 w-4" />
                         Replace
                       </span>
                     </Button>
                   </label>
-                  <Button size="sm" variant="ghost" onClick={handleRemoveResume} disabled={busy}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleRemoveResume}
+                    disabled={busy || !stepCredDone}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             ) : (
-              <label className="block cursor-pointer">
+              <label className={`block ${stepCredDone ? "cursor-pointer" : "cursor-not-allowed"}`}>
                 <input
                   type="file"
                   accept="application/pdf"
                   className="hidden"
                   onChange={handleUpload}
-                  disabled={busy}
+                  disabled={busy || !stepCredDone}
                 />
                 <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border/60 bg-surface-muted/40 p-8 text-center transition hover:bg-surface-muted/70">
                   <Upload className="h-6 w-6 text-muted-foreground" />
@@ -569,15 +587,16 @@ function Dashboard() {
               </label>
             )}
           </StepCard>
+        </div>
 
-
+        <div id="step-connect" className="scroll-mt-8">
           <StepCard
-            n={2}
-            title="Connect your job portals"
+            n={3}
+            title="Connect Naukri"
             desc="Link Naukri so we know where to refresh. Indeed support is coming soon."
-            done={step2Done}
-            active={currentStep === 2}
-            locked={!step1Done}
+            done={stepConnectDone}
+            active={currentSetupStep === 3}
+            locked={!stepCredDone || !stepResumeDone}
           >
             <div className="divide-y divide-border/60 rounded-lg border border-border/60">
               {platforms.map((p) => {
@@ -618,7 +637,7 @@ function Dashboard() {
                             size="sm"
                             variant={p.connected ? "ghost" : "default"}
                             onClick={() => togglePlatform(p.id)}
-                            disabled={!step1Done || !credentialsSaved || busy}
+                            disabled={!stepCredDone || !stepResumeDone || busy}
                           >
                             {p.connected ? (
                               "Remove"
@@ -637,14 +656,16 @@ function Dashboard() {
               })}
             </div>
           </StepCard>
+        </div>
 
+        <div id="step-start" className="scroll-mt-8">
           <StepCard
-            n={3}
-            title="Control your automation"
-            desc="Runs each morning and finishes before 8:00 AM IST. Start, pause, or stop whenever you like."
-            done={step3Done}
-            active={currentStep === 3}
-            locked={!step1Done || !step2Done}
+            n={4}
+            title="Start daily refresh"
+            desc="Runs each morning and finishes before 8:00 AM IST."
+            done={stepStartDone}
+            active={currentSetupStep === 4}
+            locked={!stepCredDone || !stepResumeDone || !stepConnectDone}
           >
             <AutomationStatus state={state} />
 
@@ -652,7 +673,7 @@ function Dashboard() {
               {state === "idle" && (
                 <Button
                   onClick={handleStart}
-                  disabled={!allowed || !step1Done || !step2Done || busy}
+                  disabled={!allowed || !stepCredDone || !stepResumeDone || !stepConnectDone || busy}
                   className="bg-gradient-primary shadow-glow"
                 >
                   <Rocket className="mr-2 h-4 w-4" /> Start daily refresh
@@ -726,6 +747,8 @@ function Dashboard() {
             </ul>
           )}
         </Card>
+          </div>
+        </div>
       </main>
     </div>
   );
@@ -765,6 +788,75 @@ function AutomationStatus({ state }: { state: AutomationState }) {
       Press <span className="font-medium text-foreground">Start</span> to begin daily refreshes. You can
       pause or stop at any time.
     </p>
+  );
+}
+
+function SetupStepper({
+  steps,
+  current,
+  orientation,
+}: {
+  steps: { n: number; done: boolean; href: string }[];
+  current: number;
+  orientation: "vertical" | "horizontal";
+}) {
+  const vertical = orientation === "vertical";
+
+  function goTo(href: string) {
+    const el = document.querySelector(href);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  return (
+    <nav
+      aria-label="Setup steps"
+      className={vertical ? "flex flex-col items-center" : "flex w-full items-center"}
+    >
+      {steps.map((step, i) => {
+        const isDone = step.done;
+        const isCurrent = step.n === current && !isDone;
+        const allDone = steps.every((s) => s.done);
+        const showAsCurrent = isCurrent || (allDone && step.n === steps.length);
+        const lineFilled = isDone;
+
+        return (
+          <div key={step.n} className="contents">
+            <button
+              type="button"
+              onClick={() => goTo(step.href)}
+              aria-label={`Step ${step.n}`}
+              aria-current={showAsCurrent ? "step" : undefined}
+              className={[
+                "grid h-10 w-10 shrink-0 place-items-center rounded-full text-sm font-bold transition",
+                isDone
+                  ? "bg-success text-success-foreground"
+                  : showAsCurrent
+                    ? "bg-gradient-primary text-primary-foreground shadow-glow ring-2 ring-primary/30"
+                    : "bg-secondary text-secondary-foreground",
+              ].join(" ")}
+            >
+              {isDone ? <CheckCircle2 className="h-4 w-4" /> : step.n}
+            </button>
+            {i < steps.length - 1 && (
+              <div
+                aria-hidden
+                className={
+                  vertical
+                    ? [
+                        "my-1.5 w-0.5 h-12 rounded-full",
+                        lineFilled ? "bg-success" : "bg-border",
+                      ].join(" ")
+                    : [
+                        "mx-1.5 h-0.5 flex-1 min-w-4 rounded-full",
+                        lineFilled ? "bg-success" : "bg-border",
+                      ].join(" ")
+                }
+              />
+            )}
+          </div>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -814,7 +906,6 @@ function StepCard({
                 <CheckCircle2 className="h-3 w-3" /> Done
               </Badge>
             )}
-            {!done && !active && !locked && <Circle className="h-3 w-3 text-muted-foreground" />}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
           <div className="mt-4">{children}</div>

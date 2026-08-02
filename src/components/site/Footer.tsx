@@ -24,6 +24,7 @@ export function Footer() {
                 <li><a href="/#features" className="hover:text-foreground">Features</a></li>
                 <li><a href="/#platforms" className="hover:text-foreground">Platforms</a></li>
                 <li><Link to="/pricing" className="hover:text-foreground">Pricing</Link></li>
+                <li><Link to="/download" className="hover:text-foreground">Download app</Link></li>
               </ul>
             </div>
             <div>

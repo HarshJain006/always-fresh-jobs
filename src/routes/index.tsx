@@ -14,6 +14,7 @@ import {
   Mail,
   Bell,
   Star,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -226,6 +227,11 @@ function IntroPanel({ onStart, signedIn }: { onStart: () => void; signedIn: bool
                 </Link>
               </Button>
             )}
+            <Button asChild size="lg" variant="outline">
+              <Link to="/download">
+                <Download className="mr-2 h-4 w-4" /> Download app
+              </Link>
+            </Button>
             <Button size="lg" variant="ghost" onClick={onStart}>
               See how it works →
             </Button>
@@ -448,6 +454,13 @@ function CtaPanel({ signedIn }: { signedIn: boolean }) {
               )}
             </Link>
           </Button>
+          <div className="mt-3">
+            <Button asChild size="lg" variant="outline">
+              <Link to="/download">
+                <Download className="mr-2 h-4 w-4" /> Download app
+              </Link>
+            </Button>
+          </div>
         </div>
       </Card>
     </div>

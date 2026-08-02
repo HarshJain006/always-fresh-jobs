@@ -1,6 +1,12 @@
 /* DailyResume PWA — cache shell assets; network-first for pages/APIs */
-const CACHE = "dailyresume-v1";
-const PRECACHE = ["/", "/manifest.webmanifest", "/pwa-icon-192.png", "/pwa-icon-512.png"];
+const CACHE = "dailyresume-v2";
+const PRECACHE = [
+  "/",
+  "/download",
+  "/manifest.webmanifest",
+  "/pwa-icon-192.png",
+  "/pwa-icon-512.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
