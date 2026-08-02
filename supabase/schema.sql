@@ -11,7 +11,7 @@ create table if not exists public.users (
   created_at timestamptz not null default now(),
   trial_started_at timestamptz not null default now(),
   trial_expire_at timestamptz not null,
-  trial_used boolean not null default true,
+  trial_used boolean not null default false,
   subscription_status text not null default 'trial'
     check (subscription_status in ('trial', 'active', 'expired', 'cancelled')),
   subscription_plan text null
@@ -31,7 +31,7 @@ create table if not exists public.users (
 create index if not exists users_google_user_id_idx on public.users (google_user_id);
 create index if not exists users_email_idx on public.users (email);
 
--- Anti-fraud: force real 5-day trial on INSERT; lock trial clocks + google_user_id on UPDATE
+-- Anti-fraud: pending trial on INSERT (clock starts on Start daily refresh); lock clocks after start
 -- (also in supabase/migrations/003_lock_trial_fields.sql)
 create or replace function public.force_trial_on_insert()
 returns trigger
@@ -39,8 +39,9 @@ language plpgsql
 as $$
 begin
   new.trial_started_at := now();
-  new.trial_expire_at := now() + interval '5 days';
-  new.trial_used := true;
+  -- Placeholder — countdown starts only when user starts daily refresh
+  new.trial_expire_at := now();
+  new.trial_used := false;
   if new.subscription_status is null
      or new.subscription_status not in ('trial', 'active', 'expired', 'cancelled') then
     new.subscription_status := 'trial';
@@ -68,17 +69,32 @@ create or replace function public.prevent_trial_tampering()
 returns trigger
 language plpgsql
 as $$
+declare
+  bypass text;
 begin
   if new.google_user_id is distinct from old.google_user_id then
     raise exception 'google_user_id is immutable';
   end if;
+  if new.created_at is distinct from old.created_at then
+    raise exception 'created_at is immutable';
+  end if;
+
+  bypass := current_setting('request.jwt.claim.role', true);
+  if bypass = 'service_role' or current_setting('app.allow_billing', true) = 'on' then
+    if old.trial_used = true then
+      if new.trial_used is distinct from true
+         or new.trial_started_at is distinct from old.trial_started_at
+         or new.trial_expire_at is distinct from old.trial_expire_at then
+        raise exception 'Free trial fields are immutable after trial has started (anti-fraud)';
+      end if;
+    end if;
+    return new;
+  end if;
+
   if new.trial_started_at is distinct from old.trial_started_at
      or new.trial_expire_at is distinct from old.trial_expire_at
      or new.trial_used is distinct from old.trial_used then
     raise exception 'Free trial fields are immutable (anti-fraud)';
-  end if;
-  if new.created_at is distinct from old.created_at then
-    raise exception 'created_at is immutable';
   end if;
   return new;
 end;

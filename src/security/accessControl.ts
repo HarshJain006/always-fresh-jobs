@@ -1,6 +1,7 @@
 /**
  * Subscription / free-trial access — server is source of truth.
- * Trial is permanently bound to google_user_id (one free-trial window per Google account).
+ * Trial is permanently bound to google_user_id (one window per Google account).
+ * Clock starts when the user starts daily refresh — not at signup.
  * Paid access ends exactly at subscription_expire_at.
  */
 
@@ -34,10 +35,17 @@ export function validateSubscription(user: User): {
   allowed: boolean;
   reason: "active" | "trial" | "expired" | "suspended";
   daysRemaining: number;
+  trialPending: boolean;
   subscriptionExpireAt: string | null;
 } {
   if (user.account_status !== "active") {
-    return { allowed: false, reason: "suspended", daysRemaining: 0, subscriptionExpireAt: null };
+    return {
+      allowed: false,
+      reason: "suspended",
+      daysRemaining: 0,
+      trialPending: false,
+      subscriptionExpireAt: null,
+    };
   }
 
   const status = checkSubscriptionStatus(user);
@@ -48,6 +56,7 @@ export function validateSubscription(user: User): {
       allowed: true,
       reason: "active",
       daysRemaining: getPaidDaysRemaining(user),
+      trialPending: false,
       subscriptionExpireAt: user.subscription_expire_at,
     };
   }
@@ -61,6 +70,7 @@ export function validateSubscription(user: User): {
       allowed: true,
       reason: "active",
       daysRemaining: getPaidDaysRemaining({ ...user, subscription_status: "active" }),
+      trialPending: false,
       subscriptionExpireAt: user.subscription_expire_at,
     };
   }
@@ -70,6 +80,7 @@ export function validateSubscription(user: User): {
       allowed: false,
       reason: "expired",
       daysRemaining: 0,
+      trialPending: false,
       subscriptionExpireAt: user.subscription_expire_at,
     };
   }
@@ -80,6 +91,7 @@ export function validateSubscription(user: User): {
       allowed: true,
       reason: "trial",
       daysRemaining: trial.daysRemaining,
+      trialPending: trial.pending,
       subscriptionExpireAt: null,
     };
   }
@@ -88,6 +100,7 @@ export function validateSubscription(user: User): {
     allowed: false,
     reason: "expired",
     daysRemaining: 0,
+    trialPending: false,
     subscriptionExpireAt: user.subscription_expire_at,
   };
 }
@@ -96,6 +109,7 @@ export type AccessSnapshot = {
   allowed: boolean;
   reason: "active" | "trial" | "expired" | "suspended";
   daysRemaining: number;
+  trialPending: boolean;
   trialExpireAt: string;
   subscriptionExpireAt: string | null;
   subscriptionStatus: User["subscription_status"];

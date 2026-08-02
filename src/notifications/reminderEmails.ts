@@ -251,6 +251,7 @@ function hasPaidAccess(user: User, nowMs: number): boolean {
 }
 
 function trialExpiredWithoutPaid(user: User, nowMs: number): boolean {
+  if (!user.trial_used) return false;
   const trialExpired = new Date(user.trial_expire_at).getTime() <= nowMs;
   return trialExpired && !hasPaidAccess(user, nowMs);
 }
@@ -287,8 +288,11 @@ async function sendSubscriptionEndingCycle(user: User, nowMs: number): Promise<b
 
 async function sendTrialEndingCycle(user: User, nowMs: number): Promise<boolean> {
   if (hasPaidAccess(user, nowMs)) return false;
+  if (!user.trial_used) return false;
   const trial = checkTrialStatus(user);
-  if (!trial.active || (trial.daysRemaining !== 2 && trial.daysRemaining !== 1)) return false;
+  if (!trial.active || trial.pending || (trial.daysRemaining !== 2 && trial.daysRemaining !== 1)) {
+    return false;
+  }
 
   const contextKey = user.trial_expire_at;
   const lastSent = await getLastSentReminder(user.id, "trial_ending", contextKey);
@@ -332,9 +336,9 @@ export async function runReminderSweep(): Promise<{
       continue;
     }
 
-    // Active free trial — warn on second-last and last day
+    // Active free trial (clock started) — warn on second-last and last day
     const trial = checkTrialStatus(user);
-    if (trial.active && (trial.daysRemaining === 2 || trial.daysRemaining === 1)) {
+    if (trial.active && !trial.pending && (trial.daysRemaining === 2 || trial.daysRemaining === 1)) {
       attempted++;
       const ok = await sendTrialEndingCycle(user, nowMs);
       if (ok) sent++;

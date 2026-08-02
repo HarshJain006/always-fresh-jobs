@@ -1,10 +1,8 @@
 /**
- * Users data access — Supabase-backed with in-memory fallback.
- *
  * Free trial is permanent per Google account (google_user_id):
- * - Created once on first signup (server clocks only)
- * - Never reset on re-login
- * - Never taken from the client session
+ * - Bound at signup as PENDING (trial_used = false) — countdown does NOT run
+ * - Clock starts exactly when the user starts daily refresh (once)
+ * - Never reset on re-login; never taken from the client session
  */
 
 import { getClient } from "./connection";
@@ -57,19 +55,71 @@ function rowToUser(row: Record<string, unknown>): User {
   };
 }
 
-/** Server-only trial clock for a brand-new Google account. */
+/**
+ * Server-only fields for a brand-new Google account.
+ * Trial is PENDING — countdown starts only via startTrialClockIfNeeded().
+ */
 export function buildNewTrialFields(now = new Date()) {
-  const trialExpire = new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
   return {
     created_at: now.toISOString(),
     trial_started_at: now.toISOString(),
-    trial_expire_at: trialExpire.toISOString(),
-    trial_used: true as const,
+    // Placeholder until Start daily refresh; ignored while trial_used = false
+    trial_expire_at: now.toISOString(),
+    trial_used: false as const,
     subscription_status: "trial" as const,
     subscription_plan: "free_trial" as const,
     subscription_started_at: null,
     subscription_expire_at: null,
     account_status: "active" as const,
+  };
+}
+
+/** True when the user has access but the 5-day clock has not started yet. */
+export function isTrialPending(user: User): boolean {
+  if (user.account_status !== "active") return false;
+  if (user.trial_used) return false;
+  if (user.subscription_status === "cancelled") return false;
+  const paidExp = user.subscription_expire_at
+    ? new Date(user.subscription_expire_at).getTime()
+    : 0;
+  if (paidExp > Date.now()) return false;
+  return true;
+}
+
+/**
+ * Start the free-trial clock exactly once (on first Start daily refresh).
+ * No-op if already started or user has paid access.
+ */
+export async function startTrialClockIfNeeded(userId: string): Promise<User | null> {
+  const user = await findUserById(userId);
+  if (!user) return null;
+
+  const paidExp = user.subscription_expire_at
+    ? new Date(user.subscription_expire_at).getTime()
+    : 0;
+  if (paidExp > Date.now()) return user;
+  if (user.trial_used) return user;
+
+  const now = new Date();
+  const expire = new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+  const updated = await updateUser(
+    userId,
+    {
+      trial_started_at: now.toISOString(),
+      trial_expire_at: expire.toISOString(),
+      trial_used: true,
+      subscription_status: "trial",
+      subscription_plan: "free_trial",
+    },
+    { allowBillingFields: true },
+  );
+  return updated ?? {
+    ...user,
+    trial_started_at: now.toISOString(),
+    trial_expire_at: expire.toISOString(),
+    trial_used: true,
+    subscription_status: "trial",
+    subscription_plan: "free_trial",
   };
 }
 
@@ -307,6 +357,7 @@ export async function deleteUser(id: string): Promise<void> {
 /**
  * Persist expired status when clocks say so (DB timestamps only).
  * Does not extend or reset trial_expire_at.
+ * Pending trials (trial_used = false) are never auto-expired.
  */
 export async function reconcileUserAccess(user: User): Promise<User> {
   if (user.account_status !== "active") return user;
@@ -327,6 +378,19 @@ export async function reconcileUserAccess(user: User): Promise<User> {
 
   // Explicit cancel → no status flip back to trial
   if (user.subscription_status === "cancelled") return user;
+
+  // Pending trial — keep entitled until they start daily refresh
+  if (!user.trial_used) {
+    if (user.subscription_status !== "trial") {
+      const updated = await updateUser(
+        user.id,
+        { subscription_status: "trial", subscription_plan: "free_trial" },
+        { allowBillingFields: true },
+      );
+      return updated ?? { ...user, subscription_status: "trial", subscription_plan: "free_trial" };
+    }
+    return user;
+  }
 
   const trialMsLeft = new Date(user.trial_expire_at).getTime() - Date.now();
   if (trialMsLeft > 0) {
@@ -354,25 +418,37 @@ export async function reconcileUserAccess(user: User): Promise<User> {
 }
 
 /**
- * Trial is active while within trial_expire_at.
- * Dates are the anti-fraud clock (immutable after signup).
+ * Trial access:
+ * - Pending (not started): active with full TRIAL_DAYS remaining
+ * - Started: active while within trial_expire_at
  */
-export function checkTrialStatus(user: User): { active: boolean; daysRemaining: number } {
-  const expire = new Date(user.trial_expire_at).getTime();
+export function checkTrialStatus(user: User): {
+  active: boolean;
+  daysRemaining: number;
+  pending: boolean;
+} {
   const now = Date.now();
-  const msLeft = expire - now;
-  const withinWindow = msLeft > 0;
   const paidActive =
     user.subscription_status === "active" &&
     (!user.subscription_expire_at || new Date(user.subscription_expire_at).getTime() > now);
   const cancelled = user.subscription_status === "cancelled";
 
-  // Calendar days in IST so the trial countdown also drops at midnight
+  if (user.account_status !== "active" || paidActive || cancelled) {
+    return { active: false, daysRemaining: 0, pending: false };
+  }
+
+  if (!user.trial_used) {
+    return { active: true, daysRemaining: TRIAL_DAYS, pending: true };
+  }
+
+  const expire = new Date(user.trial_expire_at).getTime();
+  const withinWindow = expire > now;
   const days = withinWindow ? calendarDaysRemainingIst(user.trial_expire_at) : 0;
 
   return {
-    active: withinWindow && !paidActive && !cancelled && user.account_status === "active",
+    active: withinWindow,
     daysRemaining: days,
+    pending: false,
   };
 }
 
@@ -391,6 +467,8 @@ export function checkSubscriptionStatus(user: User): SubscriptionStatus {
   }
 
   if (user.subscription_status === "cancelled") return "cancelled";
+
+  if (!user.trial_used) return "trial";
 
   const trialExpire = new Date(user.trial_expire_at).getTime();
   if (trialExpire > Date.now() && user.subscription_status !== "active") {

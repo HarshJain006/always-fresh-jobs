@@ -60,8 +60,10 @@ export function subscriptionSummary(user: User): {
   if (trial.active) {
     return {
       kind: "trial",
-      title: "Free trial",
-      detail: `${trial.daysRemaining} day${trial.daysRemaining === 1 ? "" : "s"} remaining`,
+      title: trial.pending ? "Free trial ready" : "Free trial",
+      detail: trial.pending
+        ? `${trial.daysRemaining} days — starts when you begin daily refresh`
+        : `${trial.daysRemaining} day${trial.daysRemaining === 1 ? "" : "s"} remaining`,
       daysRemaining: trial.daysRemaining,
       endingSoon: false,
       planName: "Free trial",

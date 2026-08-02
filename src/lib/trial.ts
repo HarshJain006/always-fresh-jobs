@@ -1,5 +1,5 @@
 /**
  * Free-trial constants — single source of truth for duration + UI copy.
- * New Google signups get this many days (existing users keep their DB trial_expire_at).
+ * Clock starts only when the user starts daily refresh (not at signup).
  */
 export const TRIAL_DAYS = 5;

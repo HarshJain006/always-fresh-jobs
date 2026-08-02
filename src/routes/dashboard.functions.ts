@@ -17,6 +17,7 @@ import { getUserLogs } from "@/automation/logs";
 import { toUserFacingActivityMessage } from "@/automation/activityMessage";
 import type { PlatformId } from "@/database/schemas";
 import { assertAutomationAccess, getAuthoritativeAccess } from "@/security/accessControl";
+import { startTrialClockIfNeeded } from "@/database/users";
 import { enqueueJob, getRecentJobsForUser, cancelPendingJobsForUser } from "@/queue/jobs";
 
 type AuthInput = { sessionToken: string };
@@ -37,6 +38,7 @@ export const getDashboardState = createServerFn({ method: "GET" })
         allowed: access.allowed,
         reason: access.reason,
         daysRemaining: access.daysRemaining,
+        trialPending: access.trialPending,
         trialExpireAt: access.trialExpireAt,
         subscriptionExpireAt: access.subscriptionExpireAt,
         subscriptionStatus: access.subscriptionStatus,
@@ -179,6 +181,8 @@ export const setAutomationState = createServerFn({ method: "POST" })
     const dbUser = await requireSessionUser(data.sessionToken);
     const userId = dbUser.id;
     if (data.state === "running") {
+      // Start the 5-day free-trial clock on first Start (once per Google account)
+      await startTrialClockIfNeeded(userId);
       await assertAutomationAccess(userId);
     }
     const record = await getUserAutomation(userId);

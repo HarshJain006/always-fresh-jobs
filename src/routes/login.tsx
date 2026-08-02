@@ -14,7 +14,7 @@ export const Route = createFileRoute("/login")({
       { title: "Sign in — DailyResume" },
       {
         name: "description",
-        content: `Sign in to DailyResume with Google to start your free ${TRIAL_DAYS}-day trial.`,
+        content: `Sign in to DailyResume with Google. Your ${TRIAL_DAYS}-day free trial starts when you begin daily refresh.`,
       },
     ],
   }),
@@ -80,8 +80,8 @@ function LoginPage() {
         <Card className="w-full border-border/60 bg-surface p-8 shadow-elegant">
           <h1 className="text-3xl">Welcome back</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in with Google to continue. New here? We&apos;ll start your {TRIAL_DAYS}-day free trial
-            automatically.
+            Sign in with Google to continue. New here? Your {TRIAL_DAYS}-day free trial starts when
+            you begin daily refresh.
           </p>
           <Button
             onClick={handleGoogle}

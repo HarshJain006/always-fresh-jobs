@@ -100,7 +100,7 @@ function Pricing() {
           <div className="text-xs font-semibold uppercase tracking-widest text-primary">Pricing</div>
           <h1 className="mt-3 text-4xl sm:text-5xl">Stay visible every day</h1>
           <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-            Start with a {TRIAL_DAYS}-day free trial. Pick a Premium plan — access ends exactly when your plan
+            Start with a {TRIAL_DAYS}-day free trial when you begin daily refresh. Pick a Premium plan — access ends exactly when your plan
             ends, with a reminder in the last 7 days.
           </p>
         </div>

@@ -83,6 +83,7 @@ function Dashboard() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [accessAllowed, setAccessAllowed] = useState(true);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number | null>(null);
+  const [trialPending, setTrialPending] = useState(false);
   const [accessReason, setAccessReason] = useState<"active" | "trial" | "expired" | "suspended">(
     "trial",
   );
@@ -120,6 +121,7 @@ function Dashboard() {
         }
         setAccessAllowed(dash.access.allowed);
         setTrialDaysLeft(dash.access.daysRemaining);
+        setTrialPending(Boolean(dash.access.trialPending));
         setAccessReason(dash.access.reason);
         setSubscriptionExpireAt(dash.access.subscriptionExpireAt ?? null);
         setSubscriptionPlan(dash.access.subscriptionPlan ?? null);
@@ -320,7 +322,9 @@ function Dashboard() {
     try {
       await setAutomationState({ data: { sessionToken: requireClientSessionToken(), state: "running" } });
       setState("running");
-      toast.success("Automation started. Daily refresh runs each morning and finishes before 8:00 AM IST.");
+      toast.success(
+        "Automation started. Your 5-day free trial countdown begins now. Daily refresh finishes before 8:00 AM IST.",
+      );
       await refreshLogs();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not start automation.");
@@ -384,6 +388,7 @@ function Dashboard() {
         <SubscriptionBanner
           daysRemaining={trialDays}
           reason={accessReason}
+          trialPending={trialPending}
           subscriptionExpireAt={subscriptionExpireAt}
           subscriptionPlan={subscriptionPlan}
         />
@@ -822,10 +827,12 @@ function StepCard({
 function SubscriptionBanner({
   daysRemaining,
   reason,
+  trialPending,
   subscriptionPlan,
 }: {
   daysRemaining: number;
   reason: "active" | "trial" | "expired" | "suspended";
+  trialPending?: boolean;
   subscriptionExpireAt: string | null;
   subscriptionPlan: string | null;
 }) {
@@ -881,6 +888,21 @@ function SubscriptionBanner({
   }
 
   if (reason === "trial" && daysRemaining > 0) {
+    if (trialPending) {
+      return (
+        <Card className="mt-6 flex flex-wrap items-center justify-between gap-3 border-border/60 bg-surface-muted/40 p-5">
+          <div>
+            <div className="font-semibold">Free trial ready · {daysRemaining} days</div>
+            <div className="text-sm text-muted-foreground">
+              Your countdown starts when you press Start daily refresh — not at signup.
+            </div>
+          </div>
+          <Button asChild className="bg-gradient-primary shadow-glow">
+            <Link to="/pricing">View plans</Link>
+          </Button>
+        </Card>
+      );
+    }
     return (
       <Card className="mt-6 flex flex-wrap items-center justify-between gap-3 border-border/60 bg-surface-muted/40 p-5">
         <div>
