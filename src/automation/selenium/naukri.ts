@@ -26,6 +26,8 @@ export async function loadNaukri(headless: boolean, loginUrl: string): Promise<W
   options.addArguments("--start-maximized");
   options.addArguments("--disable-popups");
   options.addArguments("--disable-gpu");
+  options.addArguments("--window-size=1920,1080");
+  options.addArguments("--no-sandbox");
 
   options.excludeSwitches("enable-automation");
   options.addArguments("--disable-blink-features=AutomationControlled");
@@ -48,10 +50,10 @@ export async function loadNaukri(headless: boolean, loginUrl: string): Promise<W
   const service = new chrome.ServiceBuilder("/usr/bin/chromedriver");
 
   const driver = await new Builder()
-  .forBrowser("chrome")
-  .setChromeService(service)
-  .setChromeOptions(options)
-  .build();
+    .forBrowser("chrome")
+    .setChromeService(service)
+    .setChromeOptions(options)
+    .build();
   await driver.executeScript(`
 Object.defineProperty(navigator, 'webdriver', {
     get: () => undefined
@@ -59,9 +61,77 @@ Object.defineProperty(navigator, 'webdriver', {
 `);
   logMsg("Google Chrome Launched!");
 
-  await driver.manage().setTimeouts({ implicit: 5000 });
+  await driver.manage().setTimeouts({ implicit: 5000, pageLoad: 60000 });
   await driver.get(loginUrl);
+  await sleep(2000);
   return driver;
+}
+
+/** Dismiss cookie / consent overlays that can hide the login form. */
+async function dismissLoginInterstitials(driver: WebDriver): Promise<void> {
+  const candidates = [
+    "//button[contains(translate(.,'ACEIPT','aceipt'),'accept')]",
+    "//button[contains(translate(.,'GOT IT','got it'),'got it')]",
+    "//button[contains(.,'Accept')]",
+    "//button[contains(.,'OK')]",
+    "//*[contains(@class,'cross-icon') or @alt='cross-icon' or contains(@class,'crossIcon')]",
+  ];
+  for (const xpath of candidates) {
+    try {
+      if (await isElementPresent(driver, By.xpath(xpath))) {
+        const el = await driver.findElement(By.xpath(xpath));
+        await el.click();
+        await sleep(800);
+        logMsg(`Dismissed interstitial: ${xpath}`);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Wait for username/password fields. If missing, refresh and retry.
+ * Naukri often needs a reload on slow Pi / flaky CDN.
+ */
+async function ensureLoginFormReady(
+  driver: WebDriver,
+  loginUrl: string,
+  maxAttempts = 3,
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    logMsg(`Waiting for Naukri login form (attempt ${attempt}/${maxAttempts})…`);
+    await dismissLoginInterstitials(driver);
+
+    const hasUser = await waitTillElementPresent(driver, "usernameField", "ID", 20);
+    const hasPass = hasUser
+      ? await waitTillElementPresent(driver, "passwordField", "ID", 8)
+      : false;
+
+    if (hasUser && hasPass) {
+      logMsg("Naukri login form ready.");
+      return true;
+    }
+
+    try {
+      const title = await driver.getTitle();
+      const url = await driver.getCurrentUrl();
+      logMsg(`Login form not ready — title="${title}" url="${url}"`);
+    } catch (e) {
+      logMsg(`Could not read page state: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    if (attempt >= maxAttempts) break;
+
+    logMsg("Refreshing Naukri login page…");
+    try {
+      await driver.navigate().refresh();
+    } catch {
+      await driver.get(loginUrl);
+    }
+    await sleep(3500);
+  }
+  return false;
 }
 
 /** Mirrors naukri-ts naukriLogin(): logs into Naukri, returns login status + the driver. */
@@ -76,102 +146,115 @@ export async function naukriLogin(
   const loginBtnLocator = "//*[@type='submit' and normalize-space()='Login']";
   const skipLocator = "//*[text() = 'SKIP AND CONTINUE']";
   const closeLocator = "//*[contains(@class, 'cross-icon') or @alt='cross-icon']";
-  const loginErrorXpath =
-    "//*[contains(@class,'server-err') or contains(@class,'err-msg') or contains(@class,'error') or contains(text(),'Invalid') or contains(text(),'incorrect') or contains(text(),'Incorrect')]";
+  // Keep this tight — broad "error" class matches unrelated UI and can mislabel page issues
+  const loginErrorXpath = [
+    "//*[contains(@class,'server-err')]",
+    "//*[contains(@class,'err-msg')]",
+    "//*[contains(text(),'Invalid details')]",
+    "//*[contains(text(),'Email ID - Password')]",
+    "//*[contains(text(),'incorrect') or contains(text(),'Incorrect')]",
+    "//*[contains(text(),'Invalid username') or contains(text(),'invalid password')]",
+  ].join(" | ");
+
+  const PAGE_LOAD_RETRY_MSG =
+    "Naukri login page did not load correctly — will retry.";
 
   try {
     driver = await loadNaukri(creds.headless, creds.naukriLoginUrl);
 
     const title = await driver.getTitle();
     logMsg(title);
-    if (title.toLowerCase().includes("naukri.com")) {
+    if (title.toLowerCase().includes("naukri")) {
       logMsg("Website Loaded Successfully.");
     }
 
-    let emailField = null;
-    let passField = null;
-    let loginButton = null;
-
-    if (await isElementPresent(driver, By.id(usernameLocator))) {
-      emailField = await getElement(driver, usernameLocator, "ID");
-      await sleep(1000);
-      passField = await getElement(driver, passwordLocator, "ID");
-      await sleep(1000);
-      loginButton = await getElement(driver, loginBtnLocator, "XPATH");
-    } else {
-      logMsg("None of the elements found to login.");
+    const formReady = await ensureLoginFormReady(driver, creds.naukriLoginUrl, 3);
+    if (!formReady) {
+      logMsg("None of the elements found to login after refresh retries.");
       return {
         status: false,
         driver,
-        error: "Naukri login page did not load correctly. Please try again later.",
+        error: PAGE_LOAD_RETRY_MSG,
       };
     }
 
-    if (emailField && passField && loginButton) {
-      await emailField.clear();
-      await emailField.sendKeys(creds.username);
-      await sleep(1000);
-      await passField.clear();
-      await passField.sendKeys(creds.password);
-      await sleep(1000);
-      await loginButton.sendKeys(Key.ENTER);
-      await sleep(3000);
+    const emailField = await getElement(driver, usernameLocator, "ID");
+    await sleep(500);
+    const passField = await getElement(driver, passwordLocator, "ID");
+    await sleep(500);
+    const loginButton = await getElement(driver, loginBtnLocator, "XPATH");
 
-      logMsg("Checking Skip button");
-      if (await waitTillElementPresent(driver, closeLocator, "XPATH", 10)) {
-        const el = await getElement(driver, closeLocator, "XPATH");
-        await el?.click();
-      }
-      if (await waitTillElementPresent(driver, skipLocator, "XPATH", 5)) {
-        const el = await getElement(driver, skipLocator, "XPATH");
-        await el?.click();
-      }
-
-      // Checkpoint to verify login succeeded
-      if (await waitTillElementPresent(driver, "ff-inventory", "ID", 40)) {
-        const checkpoint = await getElement(driver, "ff-inventory", "ID");
-        if (checkpoint) {
-          logMsg("Naukri Login Successful");
-          status = true;
-          return { status, driver };
-        }
-      }
-
-      // Still on login form / error banner → wrong credentials
-      const stillOnLogin = await isElementPresent(driver, By.id(passwordLocator));
-      let errorText = "";
-      try {
-        if (await isElementPresent(driver, By.xpath(loginErrorXpath))) {
-          const errEl = await getElement(driver, loginErrorXpath, "XPATH");
-          errorText = ((await errEl?.getText()) || "").trim();
-        }
-      } catch {
-        /* ignore */
-      }
-
-      if (stillOnLogin || /invalid|incorrect|wrong|password|username/i.test(errorText)) {
-        const message =
-          "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
-        logMsg(message + (errorText ? ` (${errorText})` : ""));
-        return { status: false, driver, error: message };
-      }
-
-      logMsg("Unknown Login Error");
+    if (!emailField || !passField || !loginButton) {
+      logMsg("Login form fields incomplete after presence check.");
       return {
         status: false,
         driver,
-        error: "Naukri login failed. Please verify your credentials and try again.",
+        error: PAGE_LOAD_RETRY_MSG,
       };
     }
+
+    await emailField.clear();
+    await emailField.sendKeys(creds.username);
+    await sleep(1000);
+    await passField.clear();
+    await passField.sendKeys(creds.password);
+    await sleep(1000);
+    await loginButton.sendKeys(Key.ENTER);
+    await sleep(3000);
+
+    logMsg("Checking Skip button");
+    if (await waitTillElementPresent(driver, closeLocator, "XPATH", 10)) {
+      const el = await getElement(driver, closeLocator, "XPATH");
+      await el?.click();
+    }
+    if (await waitTillElementPresent(driver, skipLocator, "XPATH", 5)) {
+      const el = await getElement(driver, skipLocator, "XPATH");
+      await el?.click();
+    }
+
+    // Checkpoint to verify login succeeded
+    if (await waitTillElementPresent(driver, "ff-inventory", "ID", 40)) {
+      const checkpoint = await getElement(driver, "ff-inventory", "ID");
+      if (checkpoint) {
+        logMsg("Naukri Login Successful");
+        status = true;
+        return { status, driver };
+      }
+    }
+
+    // Still on login form / Naukri error banner → wrong credentials (genuine)
+    const stillOnLogin = await isElementPresent(driver, By.id(passwordLocator));
+    let errorText = "";
+    try {
+      if (await isElementPresent(driver, By.xpath(loginErrorXpath))) {
+        const errEl = await getElement(driver, loginErrorXpath, "XPATH");
+        errorText = ((await errEl?.getText()) || "").trim();
+      }
+    } catch {
+      /* ignore */
+    }
+
+    if (stillOnLogin || /invalid|incorrect|wrong|password|username|email id/i.test(errorText)) {
+      const message =
+        "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
+      logMsg(message + (errorText ? ` (Naukri: ${errorText})` : ""));
+      return { status: false, driver, error: message };
+    }
+
+    logMsg("Unknown Login Error");
+    return {
+      status: false,
+      driver,
+      error: "Naukri login could not be confirmed — will retry.",
+    };
   } catch (e) {
     logError(e, "naukriLogin");
     return {
       status: false,
       driver,
-      error: `Naukri login error: ${e instanceof Error ? e.message : String(e)}`,
+      error: `Naukri login error — will retry. (${e instanceof Error ? e.message : String(e)})`,
     };
   }
-  return { status, driver, error: "Naukri login failed" };
 }
 
 /** Mirrors naukri-ts UpdateProfile(): updates the mobile number on the profile. */

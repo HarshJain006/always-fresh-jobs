@@ -75,7 +75,7 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
     } else {
       message =
         result.error ||
-        "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
+        "Naukri login could not be confirmed — will retry.";
     }
   } catch (e) {
     logError(e, "runNaukriJob");
