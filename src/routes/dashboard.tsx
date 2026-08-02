@@ -164,16 +164,6 @@ function Dashboard() {
   const stepConnectDone = anyConnected;
   const stepStartDone = state === "running" || state === "paused";
 
-  const setupSteps = useMemo(
-    () => [
-      { n: 1, done: stepCredDone, href: "#step-credentials" },
-      { n: 2, done: stepResumeDone, href: "#step-resume" },
-      { n: 3, done: stepConnectDone, href: "#step-connect" },
-      { n: 4, done: stepStartDone, href: "#step-start" },
-    ],
-    [stepCredDone, stepResumeDone, stepConnectDone, stepStartDone],
-  );
-
   const currentSetupStep = useMemo(() => {
     if (!stepCredDone) return 1;
     if (!stepResumeDone) return 2;
@@ -408,52 +398,52 @@ function Dashboard() {
           subscriptionPlan={subscriptionPlan}
         />
 
-        {/* Mobile: horizontal number rail */}
-        <div className="mt-8 lg:hidden">
-          <SetupStepper steps={setupSteps} current={currentSetupStep} orientation="horizontal" />
-        </div>
-
-        <div className="mt-8 flex gap-8 lg:gap-10">
-          {/* Desktop: left number rail */}
-          <aside className="hidden shrink-0 lg:block">
-            <div className="sticky top-10">
-              <SetupStepper steps={setupSteps} current={currentSetupStep} orientation="vertical" />
-            </div>
-          </aside>
-
-          <div className="min-w-0 flex-1 space-y-4">
-        <Card id="step-credentials" className="scroll-mt-8 border-border/60 p-6">
-          <div className="flex items-start gap-4">
-            <div
-              className={[
-                "grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold",
-                stepCredDone
-                  ? "bg-success text-success-foreground"
-                  : currentSetupStep === 1
-                    ? "bg-gradient-primary text-primary-foreground shadow-glow"
-                    : "bg-secondary text-secondary-foreground",
-              ].join(" ")}
-            >
-              {stepCredDone ? <CheckCircle2 className="h-4 w-4" /> : 1}
-            </div>
-            <div className="min-w-0 flex-1">
+        <div className="mt-8 space-y-0">
+          <SetupStepRow
+            n={1}
+            done={stepCredDone}
+            active={currentSetupStep === 1}
+            showLine
+            lineFilled={stepCredDone}
+          >
+            <Card id="step-credentials" className="scroll-mt-8 border-border/60 p-6">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-base font-semibold">Naukri account credentials</h3>
                 {credentialsSaved && (
-                  <Badge variant="secondary" className="gap-1">
-                    <CheckCircle2 className="h-3 w-3" /> Saved
-                  </Badge>
+                  <Badge variant="secondary">Saved</Badge>
                 )}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 Stored encrypted — used only for your automatic refreshes.
               </p>
-              <div className="mt-4 rounded-lg border border-border/60 bg-surface-muted/40 p-4">
-                <p className="text-sm font-medium">Signed in to Naukri with Google?</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Set a password on Naukri (Forgot Password / OTP), then enter it below.
-                </p>
-              </div>
+              <details className="mt-4 group rounded-lg border border-border/60 bg-surface-muted/40 open:bg-surface-muted/60">
+                <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium marker:content-none [&::-webkit-details-marker]:hidden">
+                  <span className="flex items-center justify-between gap-3">
+                    Signed in to Naukri with Google?
+                    <span className="text-xs font-normal text-muted-foreground group-open:hidden">
+                      Show steps
+                    </span>
+                    <span className="hidden text-xs font-normal text-muted-foreground group-open:inline">
+                      Hide steps
+                    </span>
+                  </span>
+                </summary>
+                <div className="border-t border-border/60 px-4 pb-4 pt-3">
+                  <p className="text-sm text-muted-foreground">
+                    You can still use DailyResume — set a password on Naukri first, then enter that
+                    email and password here.
+                  </p>
+                  <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+                    <li>Log out of Naukri if you are currently signed in.</li>
+                    <li>
+                      On the Naukri login page, choose Forgot Password or Use OTP to Login.
+                    </li>
+                    <li>Verify your email with the OTP Naukri sends you.</li>
+                    <li>Set a new password for your account.</li>
+                    <li>Enter that email and password in the form below.</li>
+                  </ol>
+                </div>
+              </details>
               <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={handleSaveCredentials}>
                 <div className="grid gap-1.5">
                   <Label htmlFor="cred-username">Naukri email / username</Label>
@@ -521,31 +511,62 @@ function Dashboard() {
                   </p>
                 </div>
               </form>
-            </div>
-          </div>
-        </Card>
+            </Card>
+          </SetupStepRow>
 
-        <div id="step-resume" className="scroll-mt-8 space-y-4">
-          <StepCard
+          <SetupStepRow
             n={2}
-            title="Upload your resume"
-            desc="One PDF only (max 5 MB). Uploading again replaces the previous file."
             done={stepResumeDone}
             active={currentSetupStep === 2}
-            locked={!stepCredDone}
+            showLine
+            lineFilled={stepResumeDone}
           >
-            {resume ? (
-              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-surface-muted/40 p-3">
-                <div className="flex items-center gap-3">
-                  <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-primary">
-                    <FileText className="h-4 w-4" />
+            <div id="step-resume" className="scroll-mt-8">
+              <StepCard
+                title="Upload your resume"
+                desc="One PDF only (max 5 MB). Uploading again replaces the previous file."
+                done={stepResumeDone}
+                active={currentSetupStep === 2}
+                locked={!stepCredDone}
+              >
+                {resume ? (
+                  <div className="flex items-center justify-between rounded-lg border border-border/60 bg-surface-muted/40 p-3">
+                    <div className="flex items-center gap-3">
+                      <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-primary">
+                        <FileText className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium">{resume.name}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label>
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          className="hidden"
+                          onChange={handleUpload}
+                          disabled={busy || !stepCredDone}
+                        />
+                        <Button asChild size="sm" variant="outline" disabled={busy || !stepCredDone}>
+                          <span>
+                            <Upload className="mr-2 h-4 w-4" />
+                            Replace
+                          </span>
+                        </Button>
+                      </label>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleRemoveResume}
+                        disabled={busy || !stepCredDone}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-sm font-medium">{resume.name}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label>
+                ) : (
+                  <label className={`block ${stepCredDone ? "cursor-pointer" : "cursor-not-allowed"}`}>
                     <input
                       type="file"
                       accept="application/pdf"
@@ -553,201 +574,189 @@ function Dashboard() {
                       onChange={handleUpload}
                       disabled={busy || !stepCredDone}
                     />
-                    <Button asChild size="sm" variant="outline" disabled={busy || !stepCredDone}>
-                      <span>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Replace
-                      </span>
-                    </Button>
+                    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border/60 bg-surface-muted/40 p-8 text-center transition hover:bg-surface-muted/70">
+                      <Upload className="h-6 w-6 text-muted-foreground" />
+                      <div className="mt-2 text-sm font-medium">Click to upload PDF</div>
+                      <div className="text-xs text-muted-foreground">Max 5 MB</div>
+                    </div>
                   </label>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleRemoveResume}
-                    disabled={busy || !stepCredDone}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <label className={`block ${stepCredDone ? "cursor-pointer" : "cursor-not-allowed"}`}>
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  className="hidden"
-                  onChange={handleUpload}
-                  disabled={busy || !stepCredDone}
-                />
-                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border/60 bg-surface-muted/40 p-8 text-center transition hover:bg-surface-muted/70">
-                  <Upload className="h-6 w-6 text-muted-foreground" />
-                  <div className="mt-2 text-sm font-medium">Click to upload PDF</div>
-                  <div className="text-xs text-muted-foreground">Max 5 MB</div>
-                </div>
-              </label>
-            )}
-          </StepCard>
-        </div>
+                )}
+              </StepCard>
+            </div>
+          </SetupStepRow>
 
-        <div id="step-connect" className="scroll-mt-8">
-          <StepCard
+          <SetupStepRow
             n={3}
-            title="Connect Naukri"
-            desc="Link Naukri so we know where to refresh. Indeed support is coming soon."
             done={stepConnectDone}
             active={currentSetupStep === 3}
-            locked={!stepCredDone || !stepResumeDone}
+            showLine
+            lineFilled={stepConnectDone}
           >
-            <div className="divide-y divide-border/60 rounded-lg border border-border/60">
-              {platforms.map((p) => {
-                const comingSoon = p.id === "indeed";
-                return (
-                  <div
-                    key={p.id}
-                    className={`flex items-center justify-between p-3 ${comingSoon ? "opacity-50" : ""}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary font-semibold text-secondary-foreground">
-                        {p.name[0]}
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium">{p.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {comingSoon
-                            ? "Coming soon"
-                            : p.connected
-                              ? `Last refresh: ${p.last ?? "—"}`
-                              : "Not connected"}
+            <div id="step-connect" className="scroll-mt-8">
+              <StepCard
+                title="Connect Naukri"
+                desc="Link Naukri so we know where to refresh. Indeed support is coming soon."
+                done={stepConnectDone}
+                active={currentSetupStep === 3}
+                locked={!stepCredDone || !stepResumeDone}
+              >
+                <div className="divide-y divide-border/60 rounded-lg border border-border/60">
+                  {platforms.map((p) => {
+                    const comingSoon = p.id === "indeed";
+                    return (
+                      <div
+                        key={p.id}
+                        className={`flex items-center justify-between p-3 ${comingSoon ? "opacity-50" : ""}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="grid h-9 w-9 place-items-center rounded-lg bg-secondary font-semibold text-secondary-foreground">
+                            {p.name[0]}
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium">{p.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {comingSoon
+                                ? "Coming soon"
+                                : p.connected
+                                  ? `Last refresh: ${p.last ?? "—"}`
+                                  : "Not connected"}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {comingSoon ? (
-                        <>
-                          <Badge variant="outline">Coming soon</Badge>
-                          <Button size="sm" variant="secondary" disabled>
-                            <Plug className="mr-2 h-4 w-4" />
-                            Connect
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          {p.connected && <Badge variant="secondary">Connected</Badge>}
-                          <Button
-                            size="sm"
-                            variant={p.connected ? "ghost" : "default"}
-                            onClick={() => togglePlatform(p.id)}
-                            disabled={!stepCredDone || !stepResumeDone || busy}
-                          >
-                            {p.connected ? (
-                              "Remove"
-                            ) : (
-                              <>
+                        <div className="flex items-center gap-2">
+                          {comingSoon ? (
+                            <>
+                              <Badge variant="outline">Coming soon</Badge>
+                              <Button size="sm" variant="secondary" disabled>
                                 <Plug className="mr-2 h-4 w-4" />
                                 Connect
-                              </>
-                            )}
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              {p.connected && <Badge variant="secondary">Connected</Badge>}
+                              <Button
+                                size="sm"
+                                variant={p.connected ? "ghost" : "default"}
+                                onClick={() => togglePlatform(p.id)}
+                                disabled={!stepCredDone || !stepResumeDone || busy}
+                              >
+                                {p.connected ? (
+                                  "Remove"
+                                ) : (
+                                  <>
+                                    <Plug className="mr-2 h-4 w-4" />
+                                    Connect
+                                  </>
+                                )}
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </StepCard>
             </div>
-          </StepCard>
-        </div>
+          </SetupStepRow>
 
-        <div id="step-start" className="scroll-mt-8">
-          <StepCard
+          <SetupStepRow
             n={4}
-            title="Start daily refresh"
-            desc="Runs each morning and finishes before 8:00 AM IST."
             done={stepStartDone}
             active={currentSetupStep === 4}
-            locked={!stepCredDone || !stepResumeDone || !stepConnectDone}
+            showLine={false}
+            lineFilled={false}
           >
-            <AutomationStatus state={state} />
+            <div id="step-start" className="scroll-mt-8">
+              <StepCard
+                title="Start daily refresh"
+                desc="Runs each morning and finishes before 8:00 AM IST."
+                done={stepStartDone}
+                active={currentSetupStep === 4}
+                locked={!stepCredDone || !stepResumeDone || !stepConnectDone}
+              >
+                <AutomationStatus state={state} />
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              {state === "idle" && (
-                <Button
-                  onClick={handleStart}
-                  disabled={!allowed || !stepCredDone || !stepResumeDone || !stepConnectDone || busy}
-                  className="bg-gradient-primary shadow-glow"
-                >
-                  <Rocket className="mr-2 h-4 w-4" /> Start daily refresh
-                </Button>
-              )}
-              {state === "running" && (
-                <>
-                  <Button variant="outline" onClick={handlePause} disabled={busy}>
-                    <Pause className="mr-2 h-4 w-4" /> Pause
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={handleStop}
-                    disabled={busy}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Square className="mr-2 h-4 w-4" /> Stop
-                  </Button>
-                </>
-              )}
-              {state === "paused" && (
-                <>
-                  <Button
-                    onClick={handleResumeAutomation}
-                    disabled={busy}
-                    className="bg-gradient-primary shadow-glow"
-                  >
-                    <Play className="mr-2 h-4 w-4" /> Resume
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={handleStop}
-                    disabled={busy}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Square className="mr-2 h-4 w-4" /> Stop
-                  </Button>
-                </>
-              )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {state === "idle" && (
+                    <Button
+                      onClick={handleStart}
+                      disabled={!allowed || !stepCredDone || !stepResumeDone || !stepConnectDone || busy}
+                      className="bg-gradient-primary shadow-glow"
+                    >
+                      <Rocket className="mr-2 h-4 w-4" /> Start daily refresh
+                    </Button>
+                  )}
+                  {state === "running" && (
+                    <>
+                      <Button variant="outline" onClick={handlePause} disabled={busy}>
+                        <Pause className="mr-2 h-4 w-4" /> Pause
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={handleStop}
+                        disabled={busy}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Square className="mr-2 h-4 w-4" /> Stop
+                      </Button>
+                    </>
+                  )}
+                  {state === "paused" && (
+                    <>
+                      <Button
+                        onClick={handleResumeAutomation}
+                        disabled={busy}
+                        className="bg-gradient-primary shadow-glow"
+                      >
+                        <Play className="mr-2 h-4 w-4" /> Resume
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={handleStop}
+                        disabled={busy}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Square className="mr-2 h-4 w-4" /> Stop
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </StepCard>
             </div>
-          </StepCard>
-        </div>
+          </SetupStepRow>
 
-        <Card className="mt-10 border-border/60 p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Recent activity</h2>
-            <span className="text-xs text-muted-foreground">Last 7 days · newest first</span>
-          </div>
-          {recentLogs.length === 0 ? (
-            <p className="mt-4 text-sm text-muted-foreground">
-              No activity yet. Once automation starts, refresh events will appear here.
-            </p>
-          ) : (
-            <ul className="mt-4 space-y-2">
-              {recentLogs.map((l) => (
-                <li
-                  key={l.id}
-                  className="flex items-center justify-between rounded-lg border border-border/60 bg-surface-muted/40 p-3 text-sm"
-                >
-                  <div className="flex items-center gap-3">
-                    {l.ok ? (
-                      <CheckCircle2 className="h-4 w-4 text-success" />
-                    ) : (
-                      <XCircle className="h-4 w-4 text-destructive" />
-                    )}
-                    <span>{l.text}</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground">{l.time}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-          </div>
+          <Card className="mt-10 border-border/60 p-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Recent activity</h2>
+              <span className="text-xs text-muted-foreground">Last 7 days · newest first</span>
+            </div>
+            {recentLogs.length === 0 ? (
+              <p className="mt-4 text-sm text-muted-foreground">
+                No activity yet. Once automation starts, refresh events will appear here.
+              </p>
+            ) : (
+              <ul className="mt-4 space-y-2">
+                {recentLogs.map((l) => (
+                  <li
+                    key={l.id}
+                    className="flex items-center justify-between rounded-lg border border-border/60 bg-surface-muted/40 p-3 text-sm"
+                  >
+                    <div className="flex items-center gap-3">
+                      {l.ok ? (
+                        <CheckCircle2 className="h-4 w-4 text-accent" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-destructive" />
+                      )}
+                      <span>{l.text}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{l.time}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
         </div>
       </main>
     </div>
@@ -757,12 +766,12 @@ function Dashboard() {
 function AutomationStatus({ state }: { state: AutomationState }) {
   if (state === "running") {
     return (
-      <div className="flex items-center gap-3 rounded-lg border border-success/30 bg-success/8 p-4">
-        <div className="grid h-9 w-9 place-items-center rounded-lg bg-success/15 text-success">
+      <div className="flex items-center gap-3 rounded-lg border border-accent/30 bg-accent/10 p-4">
+        <div className="grid h-9 w-9 place-items-center rounded-lg bg-accent/20 text-accent-foreground">
           <Zap className="h-4 w-4" />
         </div>
         <div>
-          <div className="text-sm font-semibold text-success">Automation active</div>
+          <div className="text-sm font-semibold text-accent-foreground">Automation active</div>
           <div className="text-xs text-muted-foreground">
             Daily refresh runs each morning and finishes before 8:00 AM IST
           </div>
@@ -791,77 +800,60 @@ function AutomationStatus({ state }: { state: AutomationState }) {
   );
 }
 
-function SetupStepper({
-  steps,
-  current,
-  orientation,
-}: {
-  steps: { n: number; done: boolean; href: string }[];
-  current: number;
-  orientation: "vertical" | "horizontal";
-}) {
-  const vertical = orientation === "vertical";
-
-  function goTo(href: string) {
-    const el = document.querySelector(href);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+/** Soft teal that matches brand accent — not the loud lime success. */
+function stepNumberClass(done: boolean, active: boolean) {
+  if (done) {
+    return "bg-accent/20 text-accent-foreground ring-1 ring-accent/45";
   }
+  if (active) {
+    return "bg-gradient-primary text-primary-foreground shadow-glow ring-2 ring-primary/25";
+  }
+  return "bg-secondary text-secondary-foreground";
+}
 
+function SetupStepRow({
+  n,
+  done,
+  active,
+  showLine,
+  lineFilled,
+  children,
+}: {
+  n: number;
+  done: boolean;
+  active: boolean;
+  showLine: boolean;
+  lineFilled: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <nav
-      aria-label="Setup steps"
-      className={vertical ? "flex flex-col items-center" : "flex w-full items-center"}
-    >
-      {steps.map((step, i) => {
-        const isDone = step.done;
-        const isCurrent = step.n === current && !isDone;
-        const allDone = steps.every((s) => s.done);
-        const showAsCurrent = isCurrent || (allDone && step.n === steps.length);
-        const lineFilled = isDone;
-
-        return (
-          <div key={step.n} className="contents">
-            <button
-              type="button"
-              onClick={() => goTo(step.href)}
-              aria-label={`Step ${step.n}`}
-              aria-current={showAsCurrent ? "step" : undefined}
-              className={[
-                "grid h-10 w-10 shrink-0 place-items-center rounded-full text-sm font-bold transition",
-                isDone
-                  ? "bg-success text-success-foreground"
-                  : showAsCurrent
-                    ? "bg-gradient-primary text-primary-foreground shadow-glow ring-2 ring-primary/30"
-                    : "bg-secondary text-secondary-foreground",
-              ].join(" ")}
-            >
-              {isDone ? <CheckCircle2 className="h-4 w-4" /> : step.n}
-            </button>
-            {i < steps.length - 1 && (
-              <div
-                aria-hidden
-                className={
-                  vertical
-                    ? [
-                        "my-1.5 w-0.5 h-12 rounded-full",
-                        lineFilled ? "bg-success" : "bg-border",
-                      ].join(" ")
-                    : [
-                        "mx-1.5 h-0.5 flex-1 min-w-4 rounded-full",
-                        lineFilled ? "bg-success" : "bg-border",
-                      ].join(" ")
-                }
-              />
-            )}
-          </div>
-        );
-      })}
-    </nav>
+    <div className="flex gap-3 sm:gap-4">
+      <div className="flex w-9 shrink-0 flex-col items-center">
+        <div
+          className={[
+            "grid h-9 w-9 place-items-center rounded-full text-sm font-bold transition",
+            stepNumberClass(done, active && !done),
+          ].join(" ")}
+          aria-label={`Step ${n}${done ? ", completed" : active ? ", current" : ""}`}
+        >
+          {n}
+        </div>
+        {showLine && (
+          <div
+            aria-hidden
+            className={[
+              "mt-1 w-0.5 flex-1 min-h-4 rounded-full",
+              lineFilled ? "bg-accent/50" : "bg-border",
+            ].join(" ")}
+          />
+        )}
+      </div>
+      <div className="min-w-0 flex-1 pb-4">{children}</div>
+    </div>
   );
 }
 
 function StepCard({
-  n,
   title,
   desc,
   done,
@@ -869,7 +861,6 @@ function StepCard({
   locked,
   children,
 }: {
-  n: number;
   title: string;
   desc: string;
   done: boolean;
@@ -885,32 +876,12 @@ function StepCard({
         active && !done ? "ring-1 ring-primary/40 shadow-elegant" : "",
       ].join(" ")}
     >
-      <div className="flex items-start gap-4">
-        <div
-          className={[
-            "grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold",
-            done
-              ? "bg-success text-success-foreground"
-              : active
-                ? "bg-gradient-primary text-primary-foreground shadow-glow"
-                : "bg-secondary text-secondary-foreground",
-          ].join(" ")}
-        >
-          {done ? <CheckCircle2 className="h-4 w-4" /> : n}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-base font-semibold">{title}</h3>
-            {done && (
-              <Badge variant="secondary" className="gap-1">
-                <CheckCircle2 className="h-3 w-3" /> Done
-              </Badge>
-            )}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
-          <div className="mt-4">{children}</div>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-base font-semibold">{title}</h3>
+        {done && <Badge variant="secondary">Done</Badge>}
       </div>
+      <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
+      <div className="mt-4">{children}</div>
     </Card>
   );
 }
