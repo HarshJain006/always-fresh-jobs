@@ -111,6 +111,7 @@ export async function runPlatformForUser(
     password,
     mobile: record.credentials.phone.replace(/\s+/g, ""),
     resumePath,
+    originalFileName: record.resume?.name,
     headless: options.headless ?? true,
   });
 

@@ -16,6 +16,8 @@ export interface RunNaukriJobInput {
   password: string;
   mobile: string;
   resumePath: string;
+  /** Original filename the user uploaded (shown on Naukri after upload). */
+  originalFileName?: string;
   headless?: boolean;
 }
 
@@ -23,6 +25,18 @@ export interface RunNaukriJobResult {
   ok: boolean;
   message: string;
   lastUpdated: string | null;
+}
+
+/** Keep the user's resume name for Naukri; only scrub unsafe path characters. */
+function sanitizeResumeFileName(originalName: string | undefined, fallbackPath: string): string {
+  const raw = (originalName || path.basename(fallbackPath) || "resume.pdf").trim();
+  const base = path.basename(raw).replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/\s+/g, " ");
+  const withExt = /\.pdf$/i.test(base) ? base : `${base}.pdf`;
+  // Avoid the internal storage name being sent to Naukri
+  if (/^latest\.pdf$/i.test(withExt) || /^naukri_resume_updated\.pdf$/i.test(withExt)) {
+    return "Resume.pdf";
+  }
+  return withExt.slice(0, 120);
 }
 
 export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJobResult> {
@@ -58,11 +72,9 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
     if (result.status && driver) {
       await updateProfile(driver, creds.mobile);
 
-      // Stamp PDF so Naukri detects a content change (required for "Uploaded on" to update)
-      const modifiedPath = path.join(
-        path.dirname(creds.originalResumePath),
-        "Naukri_Resume_Updated.pdf",
-      );
+      // Stamp PDF so Naukri detects a content change, but keep the user's filename
+      const uploadName = sanitizeResumeFileName(input.originalFileName, input.resumePath);
+      const modifiedPath = path.join(path.dirname(creds.originalResumePath), "upload", uploadName);
       const resumePath = await updateResume(creds.originalResumePath, modifiedPath);
       await logPdfFileDetails("User resume passed to Naukri upload", resumePath);
 

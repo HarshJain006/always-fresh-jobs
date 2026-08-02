@@ -82,7 +82,7 @@ export async function updateResume(
 
     let outputPath = modifiedResumePath;
     if (fs.existsSync(outputPath) && fs.statSync(outputPath).isDirectory()) {
-      outputPath = path.join(outputPath, "Naukri_Resume_Updated.pdf");
+      outputPath = path.join(outputPath, path.basename(originalResumePath) || "resume.pdf");
     }
     if (path.extname(outputPath).toLowerCase() !== ".pdf") {
       outputPath += ".pdf";
