@@ -894,7 +894,7 @@ function SubscriptionBanner({
           <div>
             <div className="font-semibold">Free trial ready · {daysRemaining} days</div>
             <div className="text-sm text-muted-foreground">
-              Your countdown starts when you press Start daily refresh — not at signup.
+              Your countdown starts when you press Start daily refresh.
             </div>
           </div>
           <Button asChild className="bg-gradient-primary shadow-glow">
