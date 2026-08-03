@@ -7,7 +7,7 @@
 
 import { getSupabaseServer, isSupabaseConfigured } from "@/lib/supabase";
 import { isTransientFetchError, withRetry } from "@/lib/retry";
-import { isFatalCredentialError, isPermanentSetupError } from "@/queue/jobErrors";
+import { isFatalCredentialError, isPermanentSetupError, isRetryableUploadError } from "@/queue/jobErrors";
 import {
   type AutomationJob,
   type JobType,
@@ -112,8 +112,8 @@ export async function enqueueJob(input: EnqueueInput): Promise<{
     job_type: input.jobType,
     status: "pending",
     priority: JOB_PRIORITY[input.jobType],
-    // Keep trying through flaky Naukri/page loads (credential failures stop separately)
-    max_attempts: input.jobType === "daily_refresh" ? 50 : 5,
+    // Enough tries for flaky Naukri login, bounded so Pi does not spin all day
+    max_attempts: input.jobType === "daily_refresh" ? 8 : 5,
     available_at: (input.availableAt ?? new Date()).toISOString(),
     scheduled_for: scheduledFor,
   };
@@ -325,19 +325,24 @@ export async function reclaimStaleJobs(): Promise<number> {
 }
 
 /**
- * After a failed Selenium run: stop forever only for bad credentials / missing setup.
- * All other failures go back to pending so the resume keeps uploading until success.
+ * After a failed Selenium run:
+ * - wrong password / missing setup → stop (dead)
+ * - login page / upload flake → smart retry with backoff (bounded attempts)
+ * - anything else → dead
  */
 export async function applyJobFailurePolicy(
   jobId: string,
   message: string,
-): Promise<"dead" | "retry"> {
+): Promise<"dead" | "retry" | "exhausted"> {
   if (isPermanentSetupError(message) || isFatalCredentialError(message)) {
     await markJobDeadPermanent(jobId, message);
     return "dead";
   }
-  await ensureJobKeepsRetrying(jobId, message);
-  return "retry";
+  if (isRetryableUploadError(message)) {
+    return await scheduleSmartRetry(jobId, message);
+  }
+  await markJobDeadPermanent(jobId, message);
+  return "dead";
 }
 
 export async function markJobDeadPermanent(jobId: string, message: string): Promise<void> {
@@ -361,17 +366,60 @@ export async function markJobDeadPermanent(jobId: string, message: string): Prom
   }
 }
 
-/** Force pending + high max_attempts so flaky Naukri errors never stop the day. */
-export async function ensureJobKeepsRetrying(jobId: string, message: string): Promise<void> {
-  const backoffMs = 45_000 + Math.floor(Math.random() * 75_000); // ~45–120s
+/**
+ * Bounded retry for Pi: keep attempt count, exponential backoff, stop after max_attempts.
+ * Does NOT spin forever — next calendar day gets a fresh job via normal enqueue.
+ */
+export async function scheduleSmartRetry(
+  jobId: string,
+  message: string,
+): Promise<"retry" | "exhausted"> {
+  const { data: row, error: readErr } = await getSupabaseServer()
+    .from("automation_jobs")
+    .select("attempts, max_attempts, status")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  if (readErr) {
+    throw new Error(`scheduleSmartRetry read failed: ${readErr.message}`);
+  }
+
+  const attempts = Number((row as { attempts?: number } | null)?.attempts ?? 0);
+  const maxAttempts = Math.max(3, Number((row as { max_attempts?: number } | null)?.max_attempts ?? 8));
+
+  if (attempts >= maxAttempts) {
+    const { error } = await getSupabaseServer()
+      .from("automation_jobs")
+      .update({
+        status: "failed",
+        error: message,
+        result_message: `Stopped after ${attempts} tries today — will try again tomorrow`,
+        worker_id: null,
+        locked_at: null,
+        lock_expires_at: null,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        available_at: new Date().toISOString(),
+      })
+      .eq("id", jobId)
+      .neq("status", "completed");
+
+    if (error) throw new Error(`scheduleSmartRetry exhaust failed: ${error.message}`);
+    return "exhausted";
+  }
+
+  // Backoff: ~2, 4, 8, 12, 15 minutes (Pi-friendly, not tight polling)
+  const minutes = Math.min(15, Math.max(2, 2 * Math.min(attempts, 6)));
+  const backoffMs = minutes * 60_000 + Math.floor(Math.random() * 30_000);
+
   const { error } = await getSupabaseServer()
     .from("automation_jobs")
     .update({
       status: "pending",
-      attempts: 0,
-      max_attempts: 50,
+      // keep attempts — do not reset (prevents infinite loop)
+      max_attempts: maxAttempts,
       error: message,
-      result_message: `${message} — auto-retry scheduled`,
+      result_message: `Backend retry ${attempts}/${maxAttempts} in ~${minutes}m`,
       worker_id: null,
       locked_at: null,
       lock_expires_at: null,
@@ -383,8 +431,9 @@ export async function ensureJobKeepsRetrying(jobId: string, message: string): Pr
     .neq("status", "completed");
 
   if (error) {
-    throw new Error(`ensureJobKeepsRetrying failed: ${error.message}`);
+    throw new Error(`scheduleSmartRetry failed: ${error.message}`);
   }
+  return "retry";
 }
 
 /**
@@ -410,7 +459,7 @@ export async function requeueDailyJobsForDate(options?: {
   const statuses = options?.includeCompleted
     ? (["failed", "dead", "completed"] as const)
     : (["failed", "dead"] as const);
-  const maxAttempts = Math.max(1, Math.min(50, options?.maxAttempts ?? 50));
+  const maxAttempts = Math.max(1, Math.min(12, options?.maxAttempts ?? 8));
 
   const { data: existing, error: listErr } = await getSupabaseServer()
     .from("automation_jobs")

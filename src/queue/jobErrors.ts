@@ -1,6 +1,7 @@
 /**
- * Classify automation failures — only wrong Naukri credentials are permanent.
- * Everything else must keep retrying until the resume uploads.
+ * Classify automation failures.
+ * Retry only flaky Naukri login-page / upload failures.
+ * Wrong password (and missing setup) stop permanently.
  */
 
 export function isFatalCredentialError(message: string): boolean {
@@ -14,7 +15,7 @@ export function isFatalCredentialError(message: string): boolean {
   );
 }
 
-/** True when the user must fix Naukri login details before we try again. */
+/** True when the user must fix Naukri login details / setup before we try again. */
 export function isPermanentSetupError(message: string): boolean {
   const lower = (message || "").toLowerCase();
   if (isFatalCredentialError(message)) return true;
@@ -23,6 +24,34 @@ export function isPermanentSetupError(message: string): boolean {
     lower.includes("no resume uploaded") ||
     lower.includes("stored password is not encrypted") ||
     lower.includes("could not decrypt naukri password") ||
-    lower.includes("automation is not active")
+    lower.includes("automation is not active") ||
+    lower.includes("plan has ended") ||
+    lower.includes("account suspended")
   );
+}
+
+/**
+ * Only these transient failures should auto-retry.
+ * Matches: login page did not load / failed to upload.
+ */
+export function isRetryableUploadError(message: string): boolean {
+  const lower = (message || "").toLowerCase();
+  if (isFatalCredentialError(message) || isPermanentSetupError(message)) return false;
+
+  return (
+    lower.includes("login page did not load") ||
+    lower.includes("could not be confirmed") ||
+    lower.includes("login error — will retry") ||
+    lower.includes("failed to upload") ||
+    lower.includes("could not be verified") ||
+    lower.includes("upload could not be verified") ||
+    lower.includes("could not find any usable") ||
+    lower.includes("temporary server issue")
+  );
+}
+
+/** Frontend Recent activity: only success or wrong-password — never retry noise. */
+export function shouldWriteUserActivityLog(ok: boolean, message: string): boolean {
+  if (ok) return true;
+  return isFatalCredentialError(message);
 }

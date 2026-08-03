@@ -54,8 +54,8 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
   }
   await logPdfFileDetails("Resolved resume from storage/cache", input.resumePath);
 
-  // Stagger parallel slots so 4 Chromes don't hammer Naukri login at the same instant
-  const staggerMax = Number(process.env.NAUKRI_START_STAGGER_MS || 6000);
+  // Stagger parallel slots; login gate also serializes page open
+  const staggerMax = Number(process.env.NAUKRI_START_STAGGER_MS || 10000);
   if (staggerMax > 0) {
     const wait = Math.floor(Math.random() * staggerMax);
     logMsg(`Start stagger ${wait}ms (max ${staggerMax})`);

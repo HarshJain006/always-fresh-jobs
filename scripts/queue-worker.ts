@@ -219,13 +219,17 @@ async function processOneJob(workerId: string): Promise<boolean> {
     });
     if (result.ok) {
       await completeJob(job.id, workerId, true, result.message);
-      console.log(`[worker] Done ${job.id}: ok — ${result.message}`);
+      console.log(`[worker] ${job.id} uploaded OK`);
     } else {
       await completeJob(job.id, workerId, false, result.message);
       const policy = await applyJobFailurePolicy(job.id, result.message);
-      console.log(
-        `[worker] Done ${job.id}: fail — ${result.message} → ${policy === "dead" ? "STOP (credentials/setup)" : "RETRY scheduled"}`,
-      );
+      if (policy === "dead") {
+        console.log(`[worker] ${job.id} stopped — wrong password / setup`);
+      } else if (policy === "exhausted") {
+        console.log(`[worker] ${job.id} gave up for today — will try tomorrow`);
+      } else {
+        console.log(`[worker] ${job.id} backend retry scheduled`);
+      }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -233,9 +237,13 @@ async function processOneJob(workerId: string): Promise<boolean> {
     try {
       await completeJob(job.id, workerId, false, message);
       const policy = await applyJobFailurePolicy(job.id, message);
-      console.log(
-        `[worker] ${job.id} after error → ${policy === "dead" ? "STOP (credentials/setup)" : "RETRY scheduled"}`,
-      );
+      if (policy === "dead") {
+        console.log(`[worker] ${job.id} stopped — wrong password / setup`);
+      } else if (policy === "exhausted") {
+        console.log(`[worker] ${job.id} gave up for today — will try tomorrow`);
+      } else {
+        console.log(`[worker] ${job.id} backend retry scheduled`);
+      }
     } catch (completeErr) {
       console.error(
         `[worker] complete failed for ${job.id}:`,

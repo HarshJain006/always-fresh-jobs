@@ -11,11 +11,13 @@ import { decryptData, isEncryptedSecret } from "@/security/encryption";
 import { getResumePath, getResumeFileName } from "@/storage/storage";
 import type { PlatformId } from "@/database/schemas";
 import { getAuthoritativeAccess } from "@/security/accessControl";
+import { shouldWriteUserActivityLog } from "@/queue/jobErrors";
 
 export interface UserRunResult {
   userId: string;
   platform: PlatformId;
   ok: boolean;
+  /** Backend / queue message (may include retry detail). */
   message: string;
   durationMs: number;
 }
@@ -34,10 +36,11 @@ async function finish(
   writeLog = true,
 ): Promise<UserRunResult> {
   const userMessage = toUserFacingActivityMessage(message, ok);
-  if (writeLog) {
+  if (writeLog && shouldWriteUserActivityLog(ok, message) && userMessage) {
     await saveLog({ userId, platform, ok, message: userMessage });
   }
-  return { userId, platform, ok, message: userMessage, durationMs: Date.now() - started };
+  // Keep raw backend message for queue retry policy; UI uses userMessage only when logged
+  return { userId, platform, ok, message, durationMs: Date.now() - started };
 }
 
 export async function runPlatformForUser(
@@ -63,25 +66,25 @@ export async function runPlatformForUser(
         access.reason === "suspended"
           ? "Account suspended — automation blocked"
           : "Your plan has ended — renew to keep daily refreshes running";
-      return finish(userId, platform, false, message, started);
+      return finish(userId, platform, false, message, started, false);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Subscription check failed";
-    return finish(userId, platform, false, message, started);
+    return finish(userId, platform, false, message, started, false);
   }
 
   if (platform !== "naukri") {
-    return finish(userId, platform, false, `${platform} is not available yet`, started);
+    return finish(userId, platform, false, `${platform} is not available yet`, started, false);
   }
 
   if (!record.credentials) {
-    return finish(userId, platform, false, "No Naukri credentials saved", started);
+    return finish(userId, platform, false, "No Naukri credentials saved", started, false);
   }
 
   // Never trust DB-stored resume.path as a filesystem path (path traversal risk)
   const resumePath = await getResumePath(userId);
   if (!resumePath) {
-    return finish(userId, platform, false, "No resume uploaded", started);
+    return finish(userId, platform, false, "No resume uploaded", started, false);
   }
 
   // Prefer authoritative resumes.file_name over possibly-stale automation JSON
@@ -99,6 +102,7 @@ export async function runPlatformForUser(
       false,
       "Stored password is not encrypted — re-save Naukri credentials.",
       started,
+      false,
     );
   }
   try {
@@ -110,6 +114,7 @@ export async function runPlatformForUser(
       false,
       "Could not decrypt Naukri password — re-save credentials.",
       started,
+      false,
     );
   }
 
@@ -122,13 +127,18 @@ export async function runPlatformForUser(
     headless: options.headless ?? true,
   });
 
-  const userMessage = toUserFacingActivityMessage(result.message, result.ok);
-  await saveLog({
-    userId,
-    platform,
-    ok: result.ok,
-    message: userMessage,
-  });
+  // Frontend activity: only success or wrong password
+  if (shouldWriteUserActivityLog(result.ok, result.message)) {
+    const userMessage = toUserFacingActivityMessage(result.message, result.ok);
+    if (userMessage) {
+      await saveLog({
+        userId,
+        platform,
+        ok: result.ok,
+        message: userMessage,
+      });
+    }
+  }
 
   const platforms = record.platforms.map((p) =>
     p.id === "naukri"
@@ -151,7 +161,7 @@ export async function runPlatformForUser(
     userId,
     platform,
     ok: result.ok,
-    message: userMessage,
+    message: result.message,
     durationMs: Date.now() - started,
   };
 }

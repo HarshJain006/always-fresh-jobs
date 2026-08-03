@@ -15,14 +15,21 @@ import {
   isElementPresent,
   waitTillElementPresent,
   waitTillAnyPresent,
+  getLocator,
   ci,
   sleep,
 } from "./selenium-helpers";
 import { logPdfFileDetails } from "./resume";
+import { withLoginGate } from "./loginGate";
 import type { NaukriCredentials } from "./types";
 
 /** Chrome profile dirs keyed by WebDriver — each parallel job needs its own dir. */
 const chromeProfiles = new WeakMap<WebDriver, string>();
+
+const LOGIN_URLS = [
+  "https://www.naukri.com/nlogin/login",
+  "https://www.naukri.com/nlogin/login?URL=https://www.naukri.com/mnjuser/homepage",
+];
 
 const USERNAME_CANDIDATES = [
   { value: "usernameField", type: "ID" as const },
@@ -49,8 +56,38 @@ const LOGIN_BTN_CANDIDATES = [
   { value: "//button[contains(.,'Login')]", type: "XPATH" as const },
 ];
 
-/** Mirrors naukri-ts LoadNaukri(): launches Chrome and navigates to the login URL. */
-export async function loadNaukri(headless: boolean, loginUrl: string): Promise<WebDriver> {
+async function waitForDocumentReady(driver: WebDriver, timeoutMs = 45000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const state = await driver.executeScript<string>("return document.readyState");
+      if (state === "complete" || state === "interactive") return;
+    } catch {
+      /* page navigating */
+    }
+    await sleep(300);
+  }
+}
+
+async function pageLooksBroken(driver: WebDriver): Promise<boolean> {
+  try {
+    const bodyLen = await driver.executeScript<number>(
+      "return (document.body && (document.body.innerText || '').length) || 0",
+    );
+    const title = (await driver.getTitle()) || "";
+    if (bodyLen < 40 && !/naukri/i.test(title)) return true;
+    const lower = title.toLowerCase();
+    if (lower.includes("not found") || lower.includes("403") || lower.includes("access denied")) {
+      return true;
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
+/** Mirrors naukri-ts LoadNaukri(): launches Chrome (does not navigate yet). */
+export async function createChrome(headless: boolean): Promise<WebDriver> {
   const options = new chrome.Options();
   options.addArguments("--disable-notifications");
   options.addArguments("--start-maximized");
@@ -60,9 +97,17 @@ export async function loadNaukri(headless: boolean, loginUrl: string): Promise<W
   options.addArguments("--no-sandbox");
   options.addArguments("--disable-dev-shm-usage");
   options.addArguments("--disable-software-rasterizer");
+  options.addArguments("--disable-extensions");
+  options.addArguments("--disable-background-networking");
+  options.addArguments("--disable-default-apps");
+  options.addArguments("--disable-sync");
+  options.addArguments("--metrics-recording-only");
+  options.addArguments("--no-first-run");
   options.addArguments("--lang=en-IN");
+  // Pi stability under 4 slots
+  options.addArguments("--renderer-process-limit=2");
+  options.addArguments("--js-flags=--max-old-space-size=384");
 
-  // Critical for 4 parallel slots: shared default profile causes blank/broken logins
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "dailyresume-chrome-"));
   options.addArguments(`--user-data-dir=${profileDir}`);
   options.addArguments(`--remote-debugging-port=0`);
@@ -78,7 +123,7 @@ export async function loadNaukri(headless: boolean, loginUrl: string): Promise<W
   });
 
   options.addArguments(
-    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
   );
   if (headless) {
     options.addArguments("--headless=new");
@@ -100,12 +145,119 @@ Object.defineProperty(navigator, 'webdriver', {
 });
 `);
   logMsg(`Google Chrome Launched (profile=${profileDir})`);
-
-  // Explicit waits only — non-zero implicit makes every miss hang and breaks parallel retries
   await driver.manage().setTimeouts({ implicit: 0, pageLoad: 90000, script: 30000 });
-  await driver.get(loginUrl);
-  await sleep(2500);
   return driver;
+}
+
+/** @deprecated prefer createChrome + openLoginPage */
+export async function loadNaukri(headless: boolean, loginUrl: string): Promise<WebDriver> {
+  const driver = await createChrome(headless);
+  await openLoginPage(driver, loginUrl);
+  return driver;
+}
+
+/**
+ * Open Naukri login via multiple strategies until the form is actually usable.
+ */
+async function openLoginPage(driver: WebDriver, preferredUrl: string): Promise<void> {
+  const urls = [preferredUrl, ...LOGIN_URLS.filter((u) => u !== preferredUrl)];
+
+  for (const url of urls) {
+    logMsg(`Navigating to login URL: ${url}`);
+    try {
+      await driver.get(url);
+      await waitForDocumentReady(driver);
+      await sleep(2000);
+      if (await pageLooksBroken(driver)) {
+        logMsg("Login page looks empty/broken — trying next strategy");
+        continue;
+      }
+      await dismissLoginInterstitials(driver);
+      if (await switchToLoginContext(driver)) {
+        const ready = await fieldsInteractable(driver);
+        if (ready) {
+          logMsg(`Login page opened successfully via ${url}`);
+          return;
+        }
+      }
+    } catch (e) {
+      logMsg(`Navigation failed for ${url}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Homepage → Login button path (often more reliable than deep-linking nlogin)
+  logMsg("Trying homepage → Login layer strategy…");
+  try {
+    await driver.get("https://www.naukri.com/");
+    await waitForDocumentReady(driver);
+    await sleep(2000);
+    await dismissLoginInterstitials(driver);
+
+    const loginTriggers = [
+      By.id("login_Layer"),
+      By.css("a#login_Layer"),
+      By.xpath("//a[contains(@id,'login')]"),
+      By.xpath("//div[contains(@class,'login') and contains(.,'Login')]"),
+      By.xpath("//*[contains(text(),'Login') and (self::a or self::div or self::button)]"),
+    ];
+    for (const loc of loginTriggers) {
+      try {
+        if (!(await isElementPresent(driver, loc))) continue;
+        const el = await driver.findElement(loc);
+        await driver.executeScript("arguments[0].scrollIntoView({block:'center'});", el);
+        await sleep(400);
+        await el.click();
+        await sleep(2500);
+        await dismissLoginInterstitials(driver);
+        if (await switchToLoginContext(driver) && (await fieldsInteractable(driver))) {
+          logMsg("Login page opened via homepage Login control");
+          return;
+        }
+      } catch {
+        /* try next trigger */
+      }
+    }
+  } catch (e) {
+    logMsg(`Homepage login strategy failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // Last attempt: preferred URL again after cookie clear
+  try {
+    await driver.manage().deleteAllCookies();
+  } catch {
+    /* ignore */
+  }
+  await driver.get(preferredUrl);
+  await waitForDocumentReady(driver);
+  await sleep(3000);
+}
+
+async function fieldsInteractable(driver: WebDriver): Promise<boolean> {
+  const user = await waitTillAnyPresent(driver, USERNAME_CANDIDATES, 8);
+  const pass = user ? await waitTillAnyPresent(driver, PASSWORD_CANDIDATES, 5) : null;
+  if (!user || !pass) return false;
+
+  try {
+    const userEl = await driver.findElement(getLocator(user.type, user.value));
+    const passEl = await driver.findElement(getLocator(pass.type, pass.value));
+    const userShown = await userEl.isDisplayed();
+    const passShown = await passEl.isDisplayed();
+    const userEnabled = await userEl.isEnabled();
+    const passEnabled = await passEl.isEnabled();
+    if (!(userShown && passShown && userEnabled && passEnabled)) {
+      logMsg(
+        `Login fields present but not usable (shown=${userShown}/${passShown}, enabled=${userEnabled}/${passEnabled})`,
+      );
+      return false;
+    }
+    // Focus proves the field is truly interactable (not covered by overlay)
+    await userEl.click();
+    await sleep(200);
+    return true;
+  } catch (e) {
+    logMsg(`Login fields not interactable: ${e instanceof Error ? e.message : String(e)}`);
+    return false;
+  }
 }
 
 /** Dismiss cookie / consent overlays that can hide the login form. */
@@ -178,19 +330,22 @@ async function switchToLoginContext(driver: WebDriver): Promise<boolean> {
 async function ensureLoginFormReady(
   driver: WebDriver,
   loginUrl: string,
-  maxAttempts = 5,
+  maxAttempts = 4,
 ): Promise<{ user: { value: string; type: string }; pass: { value: string; type: string } } | null> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     logMsg(`Waiting for Naukri login form (attempt ${attempt}/${maxAttempts})…`);
     await dismissLoginInterstitials(driver);
     await switchToLoginContext(driver);
 
-    const user = await waitTillAnyPresent(driver, USERNAME_CANDIDATES, 18);
-    const pass = user ? await waitTillAnyPresent(driver, PASSWORD_CANDIDATES, 10) : null;
-
-    if (user && pass) {
-      logMsg(`Naukri login form ready (user=${user.type}:${user.value}, pass=${pass.type}:${pass.value}).`);
-      return { user, pass };
+    if (await fieldsInteractable(driver)) {
+      const user = await waitTillAnyPresent(driver, USERNAME_CANDIDATES, 3);
+      const pass = await waitTillAnyPresent(driver, PASSWORD_CANDIDATES, 3);
+      if (user && pass) {
+        logMsg(
+          `Naukri login form ready (user=${user.type}:${user.value}, pass=${pass.type}:${pass.value}).`,
+        );
+        return { user, pass };
+      }
     }
 
     try {
@@ -203,7 +358,7 @@ async function ensureLoginFormReady(
 
     if (attempt >= maxAttempts) break;
 
-    logMsg("Hard-reloading Naukri login page…");
+    logMsg("Re-opening Naukri login with alternate strategy…");
     try {
       await driver.manage().deleteAllCookies();
     } catch {
@@ -214,8 +369,8 @@ async function ensureLoginFormReady(
     } catch {
       /* ignore */
     }
-    await driver.get(loginUrl);
-    await sleep(3000 + attempt * 1000);
+    await openLoginPage(driver, loginUrl);
+    await sleep(1500 + attempt * 800);
   }
   return null;
 }
@@ -238,7 +393,6 @@ export async function naukriLogin(
   const PAGE_LOAD_RETRY_MSG =
     "Naukri login page did not load correctly — will retry.";
 
-  // Full browser restarts — fixes most "works on 2nd try" failures under 4-wide concurrency
   const maxBrowserAttempts = 3;
   let lastError = PAGE_LOAD_RETRY_MSG;
 
@@ -246,27 +400,40 @@ export async function naukriLogin(
     let driver: WebDriver | null = null;
     try {
       if (browserAttempt > 1) {
-        const pause = 2500 + browserAttempt * 1500 + Math.floor(Math.random() * 2000);
-        logMsg(`Restarting Chrome for login (attempt ${browserAttempt}/${maxBrowserAttempts}) after ${pause}ms…`);
+        const pause = 3000 + browserAttempt * 2000 + Math.floor(Math.random() * 2000);
+        logMsg(
+          `Restarting Chrome for login (attempt ${browserAttempt}/${maxBrowserAttempts}) after ${pause}ms…`,
+        );
         await sleep(pause);
       }
 
-      driver = await loadNaukri(creds.headless, creds.naukriLoginUrl);
+      // Serialize login-page open across parallel slots (prevents blank Naukri pages on Pi)
+      const opened = await withLoginGate(async () => {
+        const d = await createChrome(creds.headless);
+        try {
+          await openLoginPage(d, creds.naukriLoginUrl);
+          const title = await d.getTitle();
+          logMsg(title);
+          const form = await ensureLoginFormReady(d, creds.naukriLoginUrl, 4);
+          if (!form) {
+            await tearDown(d);
+            return null;
+          }
+          return { driver: d, form };
+        } catch (e) {
+          await tearDown(d);
+          throw e;
+        }
+      });
 
-      const title = await driver.getTitle();
-      logMsg(title);
-      if (title.toLowerCase().includes("naukri")) {
-        logMsg("Website Loaded Successfully.");
-      }
-
-      const form = await ensureLoginFormReady(driver, creds.naukriLoginUrl, 5);
-      if (!form) {
+      if (!opened) {
         lastError = PAGE_LOAD_RETRY_MSG;
-        logMsg("Login form missing after refresh retries — quitting this Chrome instance.");
-        await tearDown(driver);
-        driver = null;
+        logMsg("Login form missing after open strategies — will restart Chrome.");
         continue;
       }
+
+      driver = opened.driver;
+      const form = opened.form;
 
       const emailField = await getElement(driver, form.user.value, form.user.type);
       await sleep(400);
@@ -287,12 +454,18 @@ export async function naukriLogin(
         continue;
       }
 
-      await emailField.clear();
+      await driver.executeScript(
+        "arguments[0].value=''; arguments[0].dispatchEvent(new Event('input',{bubbles:true}));",
+        emailField,
+      );
       await emailField.sendKeys(creds.username);
-      await sleep(800);
-      await passField.clear();
+      await sleep(600);
+      await driver.executeScript(
+        "arguments[0].value=''; arguments[0].dispatchEvent(new Event('input',{bubbles:true}));",
+        passField,
+      );
       await passField.sendKeys(creds.password);
-      await sleep(800);
+      await sleep(600);
       await loginButton.sendKeys(Key.ENTER);
       await sleep(3500);
 
@@ -337,8 +510,7 @@ export async function naukriLogin(
           logMsg(message + (errorText ? ` (Naukri: ${errorText})` : ""));
           return { status: false, driver, error: message };
         }
-        // Still on login without a clear credential banner → flaky page, keep retrying
-        lastError = "Naukri login page did not load correctly — will retry.";
+        lastError = PAGE_LOAD_RETRY_MSG;
         logMsg(`${lastError}${errorText ? ` (page: ${errorText})` : ""}`);
         await tearDown(driver);
         driver = null;
