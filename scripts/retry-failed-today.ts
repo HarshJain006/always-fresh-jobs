@@ -22,6 +22,7 @@ import {
   requeueDailyJobsForDate,
   summarizeDailyJobsForDate,
 } from "../src/queue/jobs";
+import { getQueueConcurrency } from "../src/queue/enqueueDaily";
 import { istDateString } from "../src/queue/types";
 import { runPlatformForUser } from "../src/automation/worker";
 
@@ -30,14 +31,16 @@ const runNow = args.includes("--run");
 const includeCompleted = args.includes("--all");
 const testBackend = args.includes("--test-backend");
 const concurrencyArg = args.find((a) => a.startsWith("--concurrency="));
+// Match production worker slots (QUEUE_CONCURRENCY, default 4) so --test-backend
+// exercises the real parallel path (login gate + unique Chrome profiles).
 const CONCURRENCY = Math.max(
   1,
   Math.min(
-    4,
+    8,
     Number(
       concurrencyArg?.split("=")[1] ||
         process.env.RETRY_CONCURRENCY ||
-        (testBackend ? 2 : 2),
+        getQueueConcurrency(),
     ),
   ),
 );
@@ -137,8 +140,8 @@ async function main() {
 
   if (testBackend) {
     console.log(
-      `[retry] TEST-BACKEND mode for ${day}: requeue ALL today's jobs, re-upload, ` +
-        `NO dashboard Recent activity writes.`,
+      `[retry] TEST-BACKEND mode for ${day}: requeue ALL today's jobs, re-upload with ` +
+        `${CONCURRENCY} parallel slots (same as production), NO dashboard Recent activity writes.`,
     );
   } else {
     console.log(
