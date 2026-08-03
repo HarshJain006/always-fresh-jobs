@@ -8,7 +8,7 @@ import { saveLog } from "./logs";
 import { toUserFacingActivityMessage } from "./activityMessage";
 import { getUserAutomation, saveUserAutomation } from "@/database/userAutomation";
 import { decryptData, isEncryptedSecret } from "@/security/encryption";
-import { getResumePath } from "@/storage/storage";
+import { getResumePath, getResumeFileName } from "@/storage/storage";
 import type { PlatformId } from "@/database/schemas";
 import { getAuthoritativeAccess } from "@/security/accessControl";
 
@@ -84,6 +84,13 @@ export async function runPlatformForUser(
     return finish(userId, platform, false, "No resume uploaded", started);
   }
 
+  // Prefer authoritative resumes.file_name over possibly-stale automation JSON
+  const storedName = await getResumeFileName(userId);
+  const originalFileName =
+    storedName ||
+    record.resume?.name ||
+    undefined;
+
   let password = record.credentials.password;
   if (!isEncryptedSecret(password)) {
     return finish(
@@ -111,7 +118,7 @@ export async function runPlatformForUser(
     password,
     mobile: record.credentials.phone.replace(/\s+/g, ""),
     resumePath,
-    originalFileName: record.resume?.name,
+    originalFileName,
     headless: options.headless ?? true,
   });
 

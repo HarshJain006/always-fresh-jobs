@@ -30,8 +30,9 @@ export function getLocator(locatorType: LocatorType | string, value: string): By
 
 export async function isElementPresent(driver: WebDriver, locator: By): Promise<boolean> {
   try {
-    await driver.findElement(locator);
-    return true;
+    // Requires implicit wait = 0 (set in loadNaukri) so misses return instantly
+    const els = await driver.findElements(locator);
+    return els.length > 0;
   } catch {
     return false;
   }
@@ -64,8 +65,8 @@ export async function waitTillElementPresent(
 ): Promise<boolean> {
   const locator = getLocator(locatorType, tag);
   const start = Date.now();
+  // Check immediately first — previous version slept ~1s before the first look
   while (Date.now() - start < timeoutSeconds * 1000) {
-    await sleep(990);
     try {
       if (await isElementPresent(driver, locator)) {
         return true;
@@ -73,9 +74,32 @@ export async function waitTillElementPresent(
     } catch (e) {
       logMsg(`Exception when waitTillElementPresent : ${e}`);
     }
+    await sleep(400);
   }
   logMsg(`Element not found with ${locatorType} : ${tag}`);
   return false;
+}
+
+/** True if any of the locator pairs is present (first match wins). */
+export async function waitTillAnyPresent(
+  driver: WebDriver,
+  candidates: Array<{ value: string; type: LocatorType | string }>,
+  timeoutSeconds = 25,
+): Promise<{ value: string; type: string } | null> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutSeconds * 1000) {
+    for (const c of candidates) {
+      try {
+        if (await isElementPresent(driver, getLocator(c.type, c.value))) {
+          return { value: c.value, type: String(c.type) };
+        }
+      } catch {
+        /* try next */
+      }
+    }
+    await sleep(400);
+  }
+  return null;
 }
 
 /** Case-insensitive XPath fragment helper. */

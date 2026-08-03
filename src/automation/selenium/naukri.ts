@@ -7,17 +7,47 @@ import { Builder, By, Key, type WebDriver } from "selenium-webdriver";
 import * as chrome from "selenium-webdriver/chrome";
 import "chromedriver";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { logMsg, logError } from "./logger";
 import {
   getElement,
   isElementPresent,
   waitTillElementPresent,
+  waitTillAnyPresent,
   ci,
   sleep,
 } from "./selenium-helpers";
 import { logPdfFileDetails } from "./resume";
 import type { NaukriCredentials } from "./types";
+
+/** Chrome profile dirs keyed by WebDriver — each parallel job needs its own dir. */
+const chromeProfiles = new WeakMap<WebDriver, string>();
+
+const USERNAME_CANDIDATES = [
+  { value: "usernameField", type: "ID" as const },
+  { value: "emailTxt", type: "ID" as const },
+  { value: "USERNAME", type: "NAME" as const },
+  { value: "username", type: "NAME" as const },
+  {
+    value: "//input[@type='text' and (contains(@placeholder,'Email') or contains(@placeholder,'Username'))]",
+    type: "XPATH" as const,
+  },
+];
+
+const PASSWORD_CANDIDATES = [
+  { value: "passwordField", type: "ID" as const },
+  { value: "pwd1", type: "ID" as const },
+  { value: "PASSWORD", type: "NAME" as const },
+  { value: "password", type: "NAME" as const },
+  { value: "//input[@type='password']", type: "XPATH" as const },
+];
+
+const LOGIN_BTN_CANDIDATES = [
+  { value: "//*[@type='submit' and normalize-space()='Login']", type: "XPATH" as const },
+  { value: "//button[@type='submit']", type: "XPATH" as const },
+  { value: "//button[contains(.,'Login')]", type: "XPATH" as const },
+];
 
 /** Mirrors naukri-ts LoadNaukri(): launches Chrome and navigates to the login URL. */
 export async function loadNaukri(headless: boolean, loginUrl: string): Promise<WebDriver> {
@@ -28,6 +58,14 @@ export async function loadNaukri(headless: boolean, loginUrl: string): Promise<W
   options.addArguments("--disable-gpu");
   options.addArguments("--window-size=1920,1080");
   options.addArguments("--no-sandbox");
+  options.addArguments("--disable-dev-shm-usage");
+  options.addArguments("--disable-software-rasterizer");
+  options.addArguments("--lang=en-IN");
+
+  // Critical for 4 parallel slots: shared default profile causes blank/broken logins
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "dailyresume-chrome-"));
+  options.addArguments(`--user-data-dir=${profileDir}`);
+  options.addArguments(`--remote-debugging-port=0`);
 
   options.excludeSwitches("enable-automation");
   options.addArguments("--disable-blink-features=AutomationControlled");
@@ -40,10 +78,9 @@ export async function loadNaukri(headless: boolean, loginUrl: string): Promise<W
   });
 
   options.addArguments(
-    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
   );
   if (headless) {
-    options.addArguments("--disable-dev-shm-usage");
     options.addArguments("--headless=new");
   }
 
@@ -54,16 +91,20 @@ export async function loadNaukri(headless: boolean, loginUrl: string): Promise<W
     .setChromeService(service)
     .setChromeOptions(options)
     .build();
+
+  chromeProfiles.set(driver, profileDir);
+
   await driver.executeScript(`
 Object.defineProperty(navigator, 'webdriver', {
     get: () => undefined
 });
 `);
-  logMsg("Google Chrome Launched!");
+  logMsg(`Google Chrome Launched (profile=${profileDir})`);
 
-  await driver.manage().setTimeouts({ implicit: 5000, pageLoad: 60000 });
+  // Explicit waits only — non-zero implicit makes every miss hang and breaks parallel retries
+  await driver.manage().setTimeouts({ implicit: 0, pageLoad: 90000, script: 30000 });
   await driver.get(loginUrl);
-  await sleep(2000);
+  await sleep(2500);
   return driver;
 }
 
@@ -90,27 +131,66 @@ async function dismissLoginInterstitials(driver: WebDriver): Promise<void> {
   }
 }
 
+/** Try default document + iframes for login fields (Naukri occasionally wraps the form). */
+async function switchToLoginContext(driver: WebDriver): Promise<boolean> {
+  try {
+    await driver.switchTo().defaultContent();
+  } catch {
+    /* ignore */
+  }
+
+  const userHit = await waitTillAnyPresent(driver, USERNAME_CANDIDATES, 2);
+  if (userHit) return true;
+
+  let frames: Awaited<ReturnType<WebDriver["findElements"]>> = [];
+  try {
+    frames = await driver.findElements(By.css("iframe"));
+  } catch {
+    frames = [];
+  }
+
+  for (let i = 0; i < Math.min(frames.length, 6); i++) {
+    try {
+      await driver.switchTo().defaultContent();
+      await driver.switchTo().frame(frames[i]);
+      const hit = await waitTillAnyPresent(driver, USERNAME_CANDIDATES, 2);
+      if (hit) {
+        logMsg(`Login form found inside iframe index=${i}`);
+        return true;
+      }
+    } catch {
+      /* try next frame */
+    }
+  }
+
+  try {
+    await driver.switchTo().defaultContent();
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 /**
- * Wait for username/password fields. If missing, refresh and retry.
- * Naukri often needs a reload on slow Pi / flaky CDN.
+ * Wait for username/password fields. If missing, hard-reload and retry.
+ * Naukri often needs a reload on slow Pi / flaky CDN / parallel Chrome load.
  */
 async function ensureLoginFormReady(
   driver: WebDriver,
   loginUrl: string,
-  maxAttempts = 3,
-): Promise<boolean> {
+  maxAttempts = 5,
+): Promise<{ user: { value: string; type: string }; pass: { value: string; type: string } } | null> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     logMsg(`Waiting for Naukri login form (attempt ${attempt}/${maxAttempts})…`);
     await dismissLoginInterstitials(driver);
+    await switchToLoginContext(driver);
 
-    const hasUser = await waitTillElementPresent(driver, "usernameField", "ID", 20);
-    const hasPass = hasUser
-      ? await waitTillElementPresent(driver, "passwordField", "ID", 8)
-      : false;
+    const user = await waitTillAnyPresent(driver, USERNAME_CANDIDATES, 18);
+    const pass = user ? await waitTillAnyPresent(driver, PASSWORD_CANDIDATES, 10) : null;
 
-    if (hasUser && hasPass) {
-      logMsg("Naukri login form ready.");
-      return true;
+    if (user && pass) {
+      logMsg(`Naukri login form ready (user=${user.type}:${user.value}, pass=${pass.type}:${pass.value}).`);
+      return { user, pass };
     }
 
     try {
@@ -123,30 +203,29 @@ async function ensureLoginFormReady(
 
     if (attempt >= maxAttempts) break;
 
-    logMsg("Refreshing Naukri login page…");
+    logMsg("Hard-reloading Naukri login page…");
     try {
-      await driver.navigate().refresh();
+      await driver.manage().deleteAllCookies();
     } catch {
-      await driver.get(loginUrl);
+      /* ignore */
     }
-    await sleep(3500);
+    try {
+      await driver.switchTo().defaultContent();
+    } catch {
+      /* ignore */
+    }
+    await driver.get(loginUrl);
+    await sleep(3000 + attempt * 1000);
   }
-  return false;
+  return null;
 }
 
 /** Mirrors naukri-ts naukriLogin(): logs into Naukri, returns login status + the driver. */
 export async function naukriLogin(
   creds: NaukriCredentials,
 ): Promise<{ status: boolean; driver: WebDriver | null; error?: string }> {
-  let status = false;
-  let driver: WebDriver | null = null;
-
-  const usernameLocator = "usernameField";
-  const passwordLocator = "passwordField";
-  const loginBtnLocator = "//*[@type='submit' and normalize-space()='Login']";
   const skipLocator = "//*[text() = 'SKIP AND CONTINUE']";
   const closeLocator = "//*[contains(@class, 'cross-icon') or @alt='cross-icon']";
-  // Keep this tight — broad "error" class matches unrelated UI and can mislabel page issues
   const loginErrorXpath = [
     "//*[contains(@class,'server-err')]",
     "//*[contains(@class,'err-msg')]",
@@ -159,102 +238,116 @@ export async function naukriLogin(
   const PAGE_LOAD_RETRY_MSG =
     "Naukri login page did not load correctly — will retry.";
 
-  try {
-    driver = await loadNaukri(creds.headless, creds.naukriLoginUrl);
+  // Full browser restarts — fixes most "works on 2nd try" failures under 4-wide concurrency
+  const maxBrowserAttempts = 3;
+  let lastError = PAGE_LOAD_RETRY_MSG;
 
-    const title = await driver.getTitle();
-    logMsg(title);
-    if (title.toLowerCase().includes("naukri")) {
-      logMsg("Website Loaded Successfully.");
-    }
-
-    const formReady = await ensureLoginFormReady(driver, creds.naukriLoginUrl, 3);
-    if (!formReady) {
-      logMsg("None of the elements found to login after refresh retries.");
-      return {
-        status: false,
-        driver,
-        error: PAGE_LOAD_RETRY_MSG,
-      };
-    }
-
-    const emailField = await getElement(driver, usernameLocator, "ID");
-    await sleep(500);
-    const passField = await getElement(driver, passwordLocator, "ID");
-    await sleep(500);
-    const loginButton = await getElement(driver, loginBtnLocator, "XPATH");
-
-    if (!emailField || !passField || !loginButton) {
-      logMsg("Login form fields incomplete after presence check.");
-      return {
-        status: false,
-        driver,
-        error: PAGE_LOAD_RETRY_MSG,
-      };
-    }
-
-    await emailField.clear();
-    await emailField.sendKeys(creds.username);
-    await sleep(1000);
-    await passField.clear();
-    await passField.sendKeys(creds.password);
-    await sleep(1000);
-    await loginButton.sendKeys(Key.ENTER);
-    await sleep(3000);
-
-    logMsg("Checking Skip button");
-    if (await waitTillElementPresent(driver, closeLocator, "XPATH", 10)) {
-      const el = await getElement(driver, closeLocator, "XPATH");
-      await el?.click();
-    }
-    if (await waitTillElementPresent(driver, skipLocator, "XPATH", 5)) {
-      const el = await getElement(driver, skipLocator, "XPATH");
-      await el?.click();
-    }
-
-    // Checkpoint to verify login succeeded
-    if (await waitTillElementPresent(driver, "ff-inventory", "ID", 40)) {
-      const checkpoint = await getElement(driver, "ff-inventory", "ID");
-      if (checkpoint) {
-        logMsg("Naukri Login Successful");
-        status = true;
-        return { status, driver };
-      }
-    }
-
-    // Still on login form / Naukri error banner → wrong credentials (genuine)
-    const stillOnLogin = await isElementPresent(driver, By.id(passwordLocator));
-    let errorText = "";
+  for (let browserAttempt = 1; browserAttempt <= maxBrowserAttempts; browserAttempt++) {
+    let driver: WebDriver | null = null;
     try {
-      if (await isElementPresent(driver, By.xpath(loginErrorXpath))) {
-        const errEl = await getElement(driver, loginErrorXpath, "XPATH");
-        errorText = ((await errEl?.getText()) || "").trim();
+      if (browserAttempt > 1) {
+        const pause = 2500 + browserAttempt * 1500 + Math.floor(Math.random() * 2000);
+        logMsg(`Restarting Chrome for login (attempt ${browserAttempt}/${maxBrowserAttempts}) after ${pause}ms…`);
+        await sleep(pause);
       }
-    } catch {
-      /* ignore */
-    }
 
-    if (stillOnLogin || /invalid|incorrect|wrong|password|username|email id/i.test(errorText)) {
-      const message =
-        "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
-      logMsg(message + (errorText ? ` (Naukri: ${errorText})` : ""));
-      return { status: false, driver, error: message };
-    }
+      driver = await loadNaukri(creds.headless, creds.naukriLoginUrl);
 
-    logMsg("Unknown Login Error");
-    return {
-      status: false,
-      driver,
-      error: "Naukri login could not be confirmed — will retry.",
-    };
-  } catch (e) {
-    logError(e, "naukriLogin");
-    return {
-      status: false,
-      driver,
-      error: `Naukri login error — will retry. (${e instanceof Error ? e.message : String(e)})`,
-    };
+      const title = await driver.getTitle();
+      logMsg(title);
+      if (title.toLowerCase().includes("naukri")) {
+        logMsg("Website Loaded Successfully.");
+      }
+
+      const form = await ensureLoginFormReady(driver, creds.naukriLoginUrl, 5);
+      if (!form) {
+        lastError = PAGE_LOAD_RETRY_MSG;
+        logMsg("Login form missing after refresh retries — quitting this Chrome instance.");
+        await tearDown(driver);
+        driver = null;
+        continue;
+      }
+
+      const emailField = await getElement(driver, form.user.value, form.user.type);
+      await sleep(400);
+      const passField = await getElement(driver, form.pass.value, form.pass.type);
+      await sleep(400);
+
+      let loginButton = null as Awaited<ReturnType<typeof getElement>>;
+      for (const btn of LOGIN_BTN_CANDIDATES) {
+        loginButton = await getElement(driver, btn.value, btn.type);
+        if (loginButton) break;
+      }
+
+      if (!emailField || !passField || !loginButton) {
+        lastError = PAGE_LOAD_RETRY_MSG;
+        logMsg("Login form fields incomplete after presence check.");
+        await tearDown(driver);
+        driver = null;
+        continue;
+      }
+
+      await emailField.clear();
+      await emailField.sendKeys(creds.username);
+      await sleep(800);
+      await passField.clear();
+      await passField.sendKeys(creds.password);
+      await sleep(800);
+      await loginButton.sendKeys(Key.ENTER);
+      await sleep(3500);
+
+      logMsg("Checking Skip button");
+      if (await waitTillElementPresent(driver, closeLocator, "XPATH", 8)) {
+        const el = await getElement(driver, closeLocator, "XPATH");
+        await el?.click();
+      }
+      if (await waitTillElementPresent(driver, skipLocator, "XPATH", 5)) {
+        const el = await getElement(driver, skipLocator, "XPATH");
+        await el?.click();
+      }
+
+      if (await waitTillElementPresent(driver, "ff-inventory", "ID", 45)) {
+        const checkpoint = await getElement(driver, "ff-inventory", "ID");
+        if (checkpoint) {
+          logMsg("Naukri Login Successful");
+          return { status: true, driver };
+        }
+      }
+
+      const stillOnLogin =
+        (await waitTillAnyPresent(driver, PASSWORD_CANDIDATES, 2)) !== null;
+      let errorText = "";
+      try {
+        if (await isElementPresent(driver, By.xpath(loginErrorXpath))) {
+          const errEl = await getElement(driver, loginErrorXpath, "XPATH");
+          errorText = ((await errEl?.getText()) || "").trim();
+        }
+      } catch {
+        /* ignore */
+      }
+
+      if (stillOnLogin || /invalid|incorrect|wrong|password|username|email id/i.test(errorText)) {
+        const message =
+          "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
+        logMsg(message + (errorText ? ` (Naukri: ${errorText})` : ""));
+        return { status: false, driver, error: message };
+      }
+
+      lastError = "Naukri login could not be confirmed — will retry.";
+      logMsg(lastError);
+      await tearDown(driver);
+      driver = null;
+    } catch (e) {
+      logError(e, `naukriLogin(attempt ${browserAttempt})`);
+      lastError = `Naukri login error — will retry. (${e instanceof Error ? e.message : String(e)})`;
+      if (driver) {
+        await tearDown(driver);
+        driver = null;
+      }
+    }
   }
+
+  return { status: false, driver: null, error: lastError };
 }
 
 /** Mirrors naukri-ts UpdateProfile(): updates the mobile number on the profile. */
@@ -754,9 +847,10 @@ export async function logout(driver: WebDriver): Promise<boolean> {
   }
 }
 
-/** Mirrors naukri-ts tearDown(): closes then quits the driver. */
+/** Mirrors naukri-ts tearDown(): closes then quits the driver and removes Chrome profile. */
 export async function tearDown(driver: WebDriver | null): Promise<void> {
   if (!driver) return;
+  const profileDir = chromeProfiles.get(driver);
   try {
     await driver.close();
     logMsg("Driver Closed Successfully");
@@ -768,5 +862,13 @@ export async function tearDown(driver: WebDriver | null): Promise<void> {
     logMsg("Driver Quit Successfully");
   } catch (e) {
     logError(e, "tearDown-quit");
+  }
+  if (profileDir) {
+    try {
+      fs.rmSync(profileDir, { recursive: true, force: true });
+      logMsg(`Removed Chrome profile ${profileDir}`);
+    } catch (e) {
+      logMsg(`Could not remove Chrome profile: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 }

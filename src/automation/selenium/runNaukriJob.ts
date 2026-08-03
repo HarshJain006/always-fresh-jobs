@@ -4,6 +4,7 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { WebDriver } from "selenium-webdriver";
 import { logMsg, logError } from "./logger";
@@ -27,16 +28,19 @@ export interface RunNaukriJobResult {
   lastUpdated: string | null;
 }
 
-/** Keep the user's resume name for Naukri; only scrub unsafe path characters. */
+/** Keep the user's resume name for Naukri; never use internal storage names. */
 function sanitizeResumeFileName(originalName: string | undefined, fallbackPath: string): string {
   const raw = (originalName || path.basename(fallbackPath) || "resume.pdf").trim();
-  const base = path.basename(raw).replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/\s+/g, " ");
-  const withExt = /\.pdf$/i.test(base) ? base : `${base}.pdf`;
-  // Avoid the internal storage name being sent to Naukri
-  if (/^latest\.pdf$/i.test(withExt) || /^naukri_resume_updated\.pdf$/i.test(withExt)) {
-    return "Resume.pdf";
+  let base = path.basename(raw).replace(/[<>:"/\\|?*\x00-\x1f]+/g, "_").replace(/\s+/g, " ").trim();
+  if (!base || /^latest\.pdf$/i.test(base) || /^naukri_resume_updated\.pdf$/i.test(base)) {
+    base = "Resume.pdf";
   }
+  const withExt = /\.pdf$/i.test(base) ? base : `${base}.pdf`;
   return withExt.slice(0, 120);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJobResult> {
@@ -49,6 +53,14 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
     return { ok: false, message, lastUpdated: null };
   }
   await logPdfFileDetails("Resolved resume from storage/cache", input.resumePath);
+
+  // Stagger parallel slots so 4 Chromes don't hammer Naukri login at the same instant
+  const staggerMax = Number(process.env.NAUKRI_START_STAGGER_MS || 6000);
+  if (staggerMax > 0) {
+    const wait = Math.floor(Math.random() * staggerMax);
+    logMsg(`Start stagger ${wait}ms (max ${staggerMax})`);
+    await sleep(wait);
+  }
 
   const creds: NaukriCredentials = {
     username: input.username,
@@ -64,6 +76,7 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
   let ok = false;
   let lastUpdated: string | null = null;
   let message = "Naukri update failed";
+  let uploadDir: string | null = null;
 
   try {
     const result = await naukriLogin(creds);
@@ -74,7 +87,9 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
 
       // Stamp PDF so Naukri detects a content change, but keep the user's filename
       const uploadName = sanitizeResumeFileName(input.originalFileName, input.resumePath);
-      const modifiedPath = path.join(path.dirname(creds.originalResumePath), "upload", uploadName);
+      uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), "dailyresume-upload-"));
+      const modifiedPath = path.join(uploadDir, uploadName);
+      logMsg(`Upload filename for Naukri: ${uploadName}`);
       const resumePath = await updateResume(creds.originalResumePath, modifiedPath);
       await logPdfFileDetails("User resume passed to Naukri upload", resumePath);
 
@@ -96,12 +111,19 @@ export async function runNaukriJob(input: RunNaukriJobInput): Promise<RunNaukriJ
     if (driver) {
       try {
         await logout(driver);
-        await new Promise((r) => setTimeout(r, 2000));
+        await sleep(2000);
       } catch (e) {
         logMsg(`Error during logout: ${e}`);
       }
     }
     await tearDown(driver);
+    if (uploadDir) {
+      try {
+        fs.rmSync(uploadDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   logMsg(`-----Naukri job ended (${ok ? "ok" : "fail"})-----\n`);

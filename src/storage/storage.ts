@@ -200,6 +200,24 @@ export async function resumeExists(userId: string): Promise<boolean> {
   return fs.existsSync(latestPath);
 }
 
+/** Authoritative display name from `resumes.file_name` (falls back to null). */
+export async function getResumeFileName(userId: string): Promise<string | null> {
+  if (!isSupabaseServerConfigured()) return null;
+  try {
+    const { data, error } = await getSupabaseServer()
+      .from("resumes")
+      .select("file_name")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    const name = data?.file_name ? String(data.file_name).trim() : "";
+    return name || null;
+  } catch (err) {
+    console.error("getResumeFileName:", err);
+    return null;
+  }
+}
+
 export async function getResumePath(userId: string): Promise<string | null> {
   const latestPath = path.join(userDir(userId), LATEST_OBJECT);
   if (!isSupabaseServerConfigured()) {
