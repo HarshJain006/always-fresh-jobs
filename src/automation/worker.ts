@@ -25,6 +25,8 @@ export interface UserRunResult {
 export interface RunOptions {
   /** Defaults to true (SaaS). */
   headless?: boolean;
+  /** Backend robustness test — never write dashboard Recent activity. */
+  skipUserActivityLog?: boolean;
 }
 
 async function finish(
@@ -127,8 +129,11 @@ export async function runPlatformForUser(
     headless: options.headless ?? true,
   });
 
-  // Frontend activity: only success or wrong password
-  if (shouldWriteUserActivityLog(result.ok, result.message)) {
+  // Frontend activity: only success or wrong password (skipped entirely for backend test runs)
+  if (
+    !options.skipUserActivityLog &&
+    shouldWriteUserActivityLog(result.ok, result.message)
+  ) {
     const userMessage = toUserFacingActivityMessage(result.message, result.ok);
     if (userMessage) {
       await saveLog({
@@ -140,22 +145,31 @@ export async function runPlatformForUser(
     }
   }
 
-  const platforms = record.platforms.map((p) =>
-    p.id === "naukri"
-      ? {
-          ...p,
-          last: result.ok
-            ? new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
-            : p.last,
-        }
-      : p,
-  );
+  // Don't bump "last refresh" UI timestamp during silent backend test runs
+  if (!options.skipUserActivityLog) {
+    const platforms = record.platforms.map((p) =>
+      p.id === "naukri"
+        ? {
+            ...p,
+            last: result.ok
+              ? new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+              : p.last,
+          }
+        : p,
+    );
 
-  await saveUserAutomation({
-    ...record,
-    platforms,
-    lastRunAt: new Date().toISOString(),
-  });
+    await saveUserAutomation({
+      ...record,
+      platforms,
+      lastRunAt: new Date().toISOString(),
+    });
+  } else if (result.ok) {
+    // Still record lastRunAt for ops, but keep platform "last" unchanged for cleaner UX
+    await saveUserAutomation({
+      ...record,
+      lastRunAt: new Date().toISOString(),
+    });
+  }
 
   return {
     userId,

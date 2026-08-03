@@ -12,7 +12,8 @@
     "worker": "tsx scripts/queue-worker.ts",
     "worker:once": "tsx scripts/queue-worker.ts --once",
     "worker:enqueue-daily": "tsx scripts/queue-worker.ts --enqueue-daily",
-    "worker:retry-failed": "tsx scripts/retry-failed-today.ts"
+    "worker:retry-failed": "tsx scripts/retry-failed-today.ts",
+    "worker:test-backend": "tsx scripts/retry-failed-today.ts --test-backend --run"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -437,18 +437,22 @@ export async function scheduleSmartRetry(
 }
 
 /**
- * Reset today's failed/dead daily jobs back to pending so the Pi can upload again.
- * Skips jobs that already failed with wrong username/password (user must fix creds).
- * Use includeCompleted=true to force re-upload for everyone (including successes).
+ * Reset today's daily jobs back to pending.
+ * - default: failed/dead only (skips wrong-password)
+ * - includeCompleted: also completed
+ * - forceAll: every status today including claimed/running + credential failures (backend test)
  */
 export async function requeueDailyJobsForDate(options?: {
   scheduledFor?: string;
   includeCompleted?: boolean;
+  /** Requeue everyone today for backend robustness testing (ignores credential skip). */
+  forceAll?: boolean;
   maxAttempts?: number;
 }): Promise<{
   scheduledFor: string;
   reset: number;
   skippedCredentialFailures: number;
+  skipped: Array<{ userId: string; status: string; reason: string }>;
   jobs: Array<{ id: string; userId: string; previousStatus: string }>;
 }> {
   if (!isSupabaseConfigured()) {
@@ -456,9 +460,12 @@ export async function requeueDailyJobsForDate(options?: {
   }
 
   const scheduledFor = options?.scheduledFor ?? istDateString();
-  const statuses = options?.includeCompleted
-    ? (["failed", "dead", "completed"] as const)
-    : (["failed", "dead"] as const);
+  const forceAll = Boolean(options?.forceAll);
+  const statuses = forceAll
+    ? (["failed", "dead", "completed", "pending", "claimed", "running"] as const)
+    : options?.includeCompleted
+      ? (["failed", "dead", "completed"] as const)
+      : (["failed", "dead"] as const);
   const maxAttempts = Math.max(1, Math.min(12, options?.maxAttempts ?? 8));
 
   const { data: existing, error: listErr } = await getSupabaseServer()
@@ -472,18 +479,35 @@ export async function requeueDailyJobsForDate(options?: {
     throw new Error(`requeueDailyJobsForDate list failed: ${listErr.message}`);
   }
 
+  const skipped: Array<{ userId: string; status: string; reason: string }> = [];
   const rows = (existing ?? []).filter((r) => {
-    if (options?.includeCompleted && String((r as { status: string }).status) === "completed") {
-      return true;
+    const status = String((r as { status: string }).status);
+    const userId = String((r as { user_id: string }).user_id);
+    const msg =
+      `${(r as { error?: string }).error || ""} ${(r as { result_message?: string }).result_message || ""}`.trim();
+
+    if (forceAll) return true;
+    if (options?.includeCompleted && status === "completed") return true;
+
+    if (isPermanentSetupError(msg)) {
+      skipped.push({
+        userId,
+        status,
+        reason: msg.slice(0, 120) || "wrong password / setup",
+      });
+      return false;
     }
-    const msg = `${(r as { error?: string }).error || ""} ${(r as { result_message?: string }).result_message || ""}`;
-    return !isPermanentSetupError(msg);
+    return true;
   });
 
-  const skippedCredentialFailures = (existing ?? []).length - rows.length;
-
   if (rows.length === 0) {
-    return { scheduledFor, reset: 0, skippedCredentialFailures, jobs: [] };
+    return {
+      scheduledFor,
+      reset: 0,
+      skippedCredentialFailures: skipped.length,
+      skipped,
+      jobs: [],
+    };
   }
 
   const ids = rows.map((r) => String((r as { id: string }).id));
@@ -495,7 +519,9 @@ export async function requeueDailyJobsForDate(options?: {
       max_attempts: maxAttempts,
       available_at: new Date().toISOString(),
       error: null,
-      result_message: "Manually requeued for retry",
+      result_message: forceAll
+        ? "Backend test requeue — silent to users"
+        : "Manually requeued for retry",
       worker_id: null,
       locked_at: null,
       lock_expires_at: null,
@@ -511,7 +537,8 @@ export async function requeueDailyJobsForDate(options?: {
   return {
     scheduledFor,
     reset: rows.length,
-    skippedCredentialFailures,
+    skippedCredentialFailures: skipped.length,
+    skipped,
     jobs: rows.map((r) => ({
       id: String((r as { id: string }).id),
       userId: String((r as { user_id: string }).user_id),
