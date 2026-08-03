@@ -11,7 +11,8 @@
     "format": "prettier --write .",
     "worker": "tsx scripts/queue-worker.ts",
     "worker:once": "tsx scripts/queue-worker.ts --once",
-    "worker:enqueue-daily": "tsx scripts/queue-worker.ts --enqueue-daily"
+    "worker:enqueue-daily": "tsx scripts/queue-worker.ts --enqueue-daily",
+    "worker:retry-failed": "tsx scripts/retry-failed-today.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

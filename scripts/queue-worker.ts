@@ -16,7 +16,7 @@
 import "./load-env";
 import cron from "node-cron";
 import * as os from "node:os";
-import { claimNextJob, completeJob, heartbeatJob, reclaimStaleJobs, summarizeDailyJobsForDate } from "../src/queue/jobs";
+import { claimNextJob, completeJob, heartbeatJob, reclaimStaleJobs, summarizeDailyJobsForDate, applyJobFailurePolicy } from "../src/queue/jobs";
 import { isTransientFetchError } from "../src/lib/retry";
 import {
   enqueueDailyJobsForEligibleUsers,
@@ -217,13 +217,25 @@ async function processOneJob(workerId: string): Promise<boolean> {
     const result = await runPlatformForUser(job.user_id, job.platform, {
       headless: true,
     });
-    await completeJob(job.id, workerId, result.ok, result.message);
-    console.log(`[worker] Done ${job.id}: ${result.ok ? "ok" : "fail"} — ${result.message}`);
+    if (result.ok) {
+      await completeJob(job.id, workerId, true, result.message);
+      console.log(`[worker] Done ${job.id}: ok — ${result.message}`);
+    } else {
+      await completeJob(job.id, workerId, false, result.message);
+      const policy = await applyJobFailurePolicy(job.id, result.message);
+      console.log(
+        `[worker] Done ${job.id}: fail — ${result.message} → ${policy === "dead" ? "STOP (credentials/setup)" : "RETRY scheduled"}`,
+      );
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[worker] Job ${job.id} error:`, message);
     try {
       await completeJob(job.id, workerId, false, message);
+      const policy = await applyJobFailurePolicy(job.id, message);
+      console.log(
+        `[worker] ${job.id} after error → ${policy === "dead" ? "STOP (credentials/setup)" : "RETRY scheduled"}`,
+      );
     } catch (completeErr) {
       console.error(
         `[worker] complete failed for ${job.id}:`,

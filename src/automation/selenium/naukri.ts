@@ -326,11 +326,23 @@ export async function naukriLogin(
         /* ignore */
       }
 
-      if (stillOnLogin || /invalid|incorrect|wrong|password|username|email id/i.test(errorText)) {
-        const message =
-          "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
-        logMsg(message + (errorText ? ` (Naukri: ${errorText})` : ""));
-        return { status: false, driver, error: message };
+      if (stillOnLogin) {
+        const explicitCredFail =
+          /invalid details|incorrect.*(password|username)|wrong.*(password|username)|invalid username|invalid password|email id\s*[-–]\s*password/i.test(
+            errorText,
+          );
+        if (explicitCredFail) {
+          const message =
+            "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
+          logMsg(message + (errorText ? ` (Naukri: ${errorText})` : ""));
+          return { status: false, driver, error: message };
+        }
+        // Still on login without a clear credential banner → flaky page, keep retrying
+        lastError = "Naukri login page did not load correctly — will retry.";
+        logMsg(`${lastError}${errorText ? ` (page: ${errorText})` : ""}`);
+        await tearDown(driver);
+        driver = null;
+        continue;
       }
 
       lastError = "Naukri login could not be confirmed — will retry.";

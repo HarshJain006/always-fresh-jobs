@@ -1,3 +1,5 @@
+import { isFatalCredentialError } from "@/queue/jobErrors";
+
 /**
  * Sanitize automation messages shown in dashboard Recent activity.
  * Keep infra / Selenium driver noise out; keep actionable user messages.
@@ -29,20 +31,15 @@ export function toUserFacingActivityMessage(raw: string, ok: boolean): string {
     return "Resume refresh failed due to a temporary server issue — will retry.";
   }
 
-  if (
-    lower.includes("incorrect username or password") ||
-    lower.includes("invalid username") ||
-    lower.includes("invalid password") ||
-    lower.includes("invalid details") ||
-    (lower.includes("login failed") && lower.includes("password"))
-  ) {
+  if (isFatalCredentialError(text)) {
     return "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
   }
 
   if (
     lower.includes("login page did not load") ||
     lower.includes("could not be confirmed") ||
-    lower.includes("will retry")
+    lower.includes("will retry") ||
+    lower.includes("auto-retry")
   ) {
     return "Naukri login page did not load correctly — will retry.";
   }

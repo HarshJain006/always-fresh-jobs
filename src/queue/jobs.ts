@@ -7,6 +7,7 @@
 
 import { getSupabaseServer, isSupabaseConfigured } from "@/lib/supabase";
 import { isTransientFetchError, withRetry } from "@/lib/retry";
+import { isFatalCredentialError, isPermanentSetupError } from "@/queue/jobErrors";
 import {
   type AutomationJob,
   type JobType,
@@ -111,6 +112,8 @@ export async function enqueueJob(input: EnqueueInput): Promise<{
     job_type: input.jobType,
     status: "pending",
     priority: JOB_PRIORITY[input.jobType],
+    // Keep trying through flaky Naukri/page loads (credential failures stop separately)
+    max_attempts: input.jobType === "daily_refresh" ? 50 : 5,
     available_at: (input.availableAt ?? new Date()).toISOString(),
     scheduled_for: scheduledFor,
   };
@@ -319,6 +322,153 @@ export async function reclaimStaleJobs(): Promise<number> {
     }
     return 0;
   }
+}
+
+/**
+ * After a failed Selenium run: stop forever only for bad credentials / missing setup.
+ * All other failures go back to pending so the resume keeps uploading until success.
+ */
+export async function applyJobFailurePolicy(
+  jobId: string,
+  message: string,
+): Promise<"dead" | "retry"> {
+  if (isPermanentSetupError(message) || isFatalCredentialError(message)) {
+    await markJobDeadPermanent(jobId, message);
+    return "dead";
+  }
+  await ensureJobKeepsRetrying(jobId, message);
+  return "retry";
+}
+
+export async function markJobDeadPermanent(jobId: string, message: string): Promise<void> {
+  const { error } = await getSupabaseServer()
+    .from("automation_jobs")
+    .update({
+      status: "dead",
+      error: message,
+      result_message: message,
+      worker_id: null,
+      locked_at: null,
+      lock_expires_at: null,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      available_at: new Date().toISOString(),
+    })
+    .eq("id", jobId);
+
+  if (error) {
+    throw new Error(`markJobDeadPermanent failed: ${error.message}`);
+  }
+}
+
+/** Force pending + high max_attempts so flaky Naukri errors never stop the day. */
+export async function ensureJobKeepsRetrying(jobId: string, message: string): Promise<void> {
+  const backoffMs = 45_000 + Math.floor(Math.random() * 75_000); // ~45–120s
+  const { error } = await getSupabaseServer()
+    .from("automation_jobs")
+    .update({
+      status: "pending",
+      attempts: 0,
+      max_attempts: 50,
+      error: message,
+      result_message: `${message} — auto-retry scheduled`,
+      worker_id: null,
+      locked_at: null,
+      lock_expires_at: null,
+      completed_at: null,
+      available_at: new Date(Date.now() + backoffMs).toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId)
+    .neq("status", "completed");
+
+  if (error) {
+    throw new Error(`ensureJobKeepsRetrying failed: ${error.message}`);
+  }
+}
+
+/**
+ * Reset today's failed/dead daily jobs back to pending so the Pi can upload again.
+ * Skips jobs that already failed with wrong username/password (user must fix creds).
+ * Use includeCompleted=true to force re-upload for everyone (including successes).
+ */
+export async function requeueDailyJobsForDate(options?: {
+  scheduledFor?: string;
+  includeCompleted?: boolean;
+  maxAttempts?: number;
+}): Promise<{
+  scheduledFor: string;
+  reset: number;
+  skippedCredentialFailures: number;
+  jobs: Array<{ id: string; userId: string; previousStatus: string }>;
+}> {
+  if (!isSupabaseConfigured()) {
+    throw new Error("Supabase is required for the job queue.");
+  }
+
+  const scheduledFor = options?.scheduledFor ?? istDateString();
+  const statuses = options?.includeCompleted
+    ? (["failed", "dead", "completed"] as const)
+    : (["failed", "dead"] as const);
+  const maxAttempts = Math.max(1, Math.min(50, options?.maxAttempts ?? 50));
+
+  const { data: existing, error: listErr } = await getSupabaseServer()
+    .from("automation_jobs")
+    .select("id, user_id, status, error, result_message")
+    .eq("job_type", "daily_refresh")
+    .eq("scheduled_for", scheduledFor)
+    .in("status", [...statuses]);
+
+  if (listErr) {
+    throw new Error(`requeueDailyJobsForDate list failed: ${listErr.message}`);
+  }
+
+  const rows = (existing ?? []).filter((r) => {
+    if (options?.includeCompleted && String((r as { status: string }).status) === "completed") {
+      return true;
+    }
+    const msg = `${(r as { error?: string }).error || ""} ${(r as { result_message?: string }).result_message || ""}`;
+    return !isPermanentSetupError(msg);
+  });
+
+  const skippedCredentialFailures = (existing ?? []).length - rows.length;
+
+  if (rows.length === 0) {
+    return { scheduledFor, reset: 0, skippedCredentialFailures, jobs: [] };
+  }
+
+  const ids = rows.map((r) => String((r as { id: string }).id));
+  const { error: updErr } = await getSupabaseServer()
+    .from("automation_jobs")
+    .update({
+      status: "pending",
+      attempts: 0,
+      max_attempts: maxAttempts,
+      available_at: new Date().toISOString(),
+      error: null,
+      result_message: "Manually requeued for retry",
+      worker_id: null,
+      locked_at: null,
+      lock_expires_at: null,
+      completed_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .in("id", ids);
+
+  if (updErr) {
+    throw new Error(`requeueDailyJobsForDate update failed: ${updErr.message}`);
+  }
+
+  return {
+    scheduledFor,
+    reset: rows.length,
+    skippedCredentialFailures,
+    jobs: rows.map((r) => ({
+      id: String((r as { id: string }).id),
+      userId: String((r as { user_id: string }).user_id),
+      previousStatus: String((r as { status: string }).status),
+    })),
+  };
 }
 
 /** Cancel pending/claimed jobs for a user (e.g. when they Stop/Pause). */
