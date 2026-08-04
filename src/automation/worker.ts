@@ -39,7 +39,14 @@ async function finish(
 ): Promise<UserRunResult> {
   const userMessage = toUserFacingActivityMessage(message, ok);
   if (writeLog && shouldWriteUserActivityLog(ok, message) && userMessage) {
-    await saveLog({ userId, platform, ok, message: userMessage });
+    try {
+      await saveLog({ userId, platform, ok, message: userMessage });
+    } catch (err) {
+      console.error(
+        `[worker] activity log write failed for user=${userId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
   // Keep raw backend message for queue retry policy; UI uses userMessage only when logged
   return { userId, platform, ok, message, durationMs: Date.now() - started };
@@ -136,39 +143,53 @@ export async function runPlatformForUser(
   ) {
     const userMessage = toUserFacingActivityMessage(result.message, result.ok);
     if (userMessage) {
-      await saveLog({
-        userId,
-        platform,
-        ok: result.ok,
-        message: userMessage,
-      });
+      try {
+        await saveLog({
+          userId,
+          platform,
+          ok: result.ok,
+          message: userMessage,
+        });
+      } catch (err) {
+        // Upload already succeeded/failed — never lose the job over a log write
+        console.error(
+          `[worker] activity log write failed for user=${userId}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
   }
 
   // Don't bump "last refresh" UI timestamp during silent backend test runs
-  if (!options.skipUserActivityLog) {
-    const platforms = record.platforms.map((p) =>
-      p.id === "naukri"
-        ? {
-            ...p,
-            last: result.ok
-              ? new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
-              : p.last,
-          }
-        : p,
-    );
+  try {
+    if (!options.skipUserActivityLog) {
+      const platforms = record.platforms.map((p) =>
+        p.id === "naukri"
+          ? {
+              ...p,
+              last: result.ok
+                ? new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+                : p.last,
+            }
+          : p,
+      );
 
-    await saveUserAutomation({
-      ...record,
-      platforms,
-      lastRunAt: new Date().toISOString(),
-    });
-  } else if (result.ok) {
-    // Still record lastRunAt for ops, but keep platform "last" unchanged for cleaner UX
-    await saveUserAutomation({
-      ...record,
-      lastRunAt: new Date().toISOString(),
-    });
+      await saveUserAutomation({
+        ...record,
+        platforms,
+        lastRunAt: new Date().toISOString(),
+      });
+    } else if (result.ok) {
+      await saveUserAutomation({
+        ...record,
+        lastRunAt: new Date().toISOString(),
+      });
+    }
+  } catch (err) {
+    console.error(
+      `[worker] saveUserAutomation failed for user=${userId}:`,
+      err instanceof Error ? err.message : err,
+    );
   }
 
   return {

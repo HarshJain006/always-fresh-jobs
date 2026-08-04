@@ -95,7 +95,7 @@ function Dashboard() {
   const recentLogs = useMemo(() => {
     const cutoff = now - 7 * day;
     return logs
-      .filter((l) => l.ts >= cutoff)
+      .filter((l) => l.ts >= cutoff && Boolean(l.text?.trim()))
       .sort((a, b) => b.ts - a.ts)
       .slice(0, 7);
   }, [logs, now, day]);

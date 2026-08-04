@@ -64,13 +64,19 @@ export const getDashboardState = createServerFn({ method: "GET" })
       platforms: record.platforms,
       automationState: record.automationState,
       lastRunAt: record.lastRunAt,
-      logs: logs.map((l) => ({
-        id: l.id,
-        ok: l.ok,
-        text: toUserFacingActivityMessage(l.message, l.ok),
-        time: new Date(l.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
-        ts: new Date(l.created_at).getTime(),
-      })),
+      logs: logs
+        .map((l) => {
+          const text = toUserFacingActivityMessage(l.message, l.ok);
+          return {
+            id: l.id,
+            ok: l.ok,
+            text,
+            time: new Date(l.created_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+            ts: new Date(l.created_at).getTime(),
+          };
+        })
+        // Hide retry/infra noise and empty rows (only success + wrong-password)
+        .filter((l) => Boolean(l.text)),
     };
   });
 

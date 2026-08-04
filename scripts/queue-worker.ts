@@ -17,16 +17,19 @@ import "./load-env";
 import cron from "node-cron";
 import * as os from "node:os";
 import { claimNextJob, completeJob, heartbeatJob, reclaimStaleJobs, summarizeDailyJobsForDate, applyJobFailurePolicy } from "../src/queue/jobs";
-import { isTransientFetchError } from "../src/lib/retry";
+import { isTransientFetchError, withRetry } from "../src/lib/retry";
 import {
   enqueueDailyJobsForEligibleUsers,
   getDailyEnqueueStatus,
   getQueueConcurrency,
   isAfterDynamicStart,
+  isWithinDynamicEnqueueWindow,
+  istMinutesFromMidnight,
   planTodaysEnqueue,
   type DailySchedulePlan,
 } from "../src/queue/enqueueDaily";
 import { runPlatformForUser } from "../src/automation/worker";
+import { flushPendingActivityLogs } from "../src/automation/logs";
 import { istDateString } from "../src/queue/types";
 
 const once = process.argv.includes("--once");
@@ -37,10 +40,12 @@ const RECLAIM_MS = Number(process.env.QUEUE_RECLAIM_MS || 60_000);
 const CONCURRENCY = getQueueConcurrency();
 const BASE_WORKER_ID = process.env.WORKER_ID || `rpi-${os.hostname()}-${process.pid}`;
 
-/** Avoid double-enqueue for the same IST calendar day. */
+/** Avoid double-enqueue for the same IST calendar day — only after Supabase confirms. */
 let lastEnqueuedForDate: string | null = null;
 let lastLoggedPlanKey: string | null = null;
 let reclaimInFlight = false;
+let lastEnqueueFailLogAt = 0;
+let enqueueInFlight = false;
 
 /**
  * Shared cooldown when Supabase is briefly unreachable (common on Pi Wi‑Fi).
@@ -116,21 +121,59 @@ async function bootstrapEnqueueStateFromSupabase(): Promise<void> {
 
 async function enqueueDaily(reason: string) {
   const day = istDateString();
-  if (lastEnqueuedForDate === day) {
-    console.log(`[worker] Already enqueued for ${day} — skip (${reason})`);
-    return null;
-  }
 
   console.log(`[worker] Checking Supabase & enqueueing daily jobs for ${day} (${reason})…`);
-  const result = await enqueueDailyJobsForEligibleUsers(day);
-  lastEnqueuedForDate = day;
+
+  // Retry through Pi DNS blips (EAI_AGAIN) — do NOT mark the day done on failure
+  const result = await withRetry(
+    `enqueueDaily(${reason})`,
+    () => enqueueDailyJobsForEligibleUsers(day),
+    { attempts: 5, baseDelayMs: 2000 },
+  );
+
+  const hasErrors = result.errors.length > 0;
+  if (hasErrors) {
+    console.warn(
+      `[worker] Enqueue partial for ${day}: ${result.errors.length} error(s). Will retry missing users.`,
+      result.errors.slice(0, 5),
+    );
+    // Do not set lastEnqueuedForDate — cron will catch remaining users
+    return result;
+  }
+
+  // Confirm against Supabase so a flaky mid-run can't leave users missing
+  try {
+    const status = await withRetry(
+      "getDailyEnqueueStatus",
+      () => getDailyEnqueueStatus(day),
+      { attempts: 3, baseDelayMs: 1000 },
+    );
+    if (status.allAccountedFor) {
+      lastEnqueuedForDate = day;
+      console.log(
+        `[worker] Enqueue complete for ${day}: all ${status.eligible} eligible user(s) have a job ` +
+          `(+${result.enqueued} new, ${result.alreadyDone} done, ${result.alreadyQueued} queued).`,
+      );
+    } else {
+      console.warn(
+        `[worker] Enqueue incomplete for ${day}: ${status.withJob}/${status.eligible} have jobs — will catch up.`,
+      );
+      // Keep trying next minute
+    }
+  } catch (err) {
+    console.warn(
+      `[worker] Could not verify enqueue status after run:`,
+      err instanceof Error ? err.message : err,
+    );
+    // Do NOT mark the day done — catch-up must retry when Supabase is reachable again
+  }
 
   if (result.enqueued === 0 && (result.alreadyDone > 0 || result.alreadyQueued > 0)) {
     console.log(
       `[worker] No new uploads needed for ${day}: ` +
         `${result.alreadyDone} already completed today, ` +
         `${result.alreadyQueued} already queued/attempted, ` +
-        `${result.skipped} skipped. Restart will not re-upload.`,
+        `${result.skipped} skipped.`,
     );
   } else {
     console.log("[worker] Enqueue result:", result);
@@ -139,22 +182,76 @@ async function enqueueDaily(reason: string) {
 }
 
 async function maybeEnqueueBySchedule(reason: string): Promise<DailySchedulePlan | null> {
-  const plan = await planTodaysEnqueue();
-  const planKey = `${istDateString()}:${plan.eligibleUsers}:${plan.startLabel}`;
-  if (planKey !== lastLoggedPlanKey) {
-    console.log(
-      `[worker] Schedule plan: ${plan.eligibleUsers} users → ${plan.batches} batch(es) × ${plan.minutesPerUser} min (+${plan.bufferMinutes} buffer) = ${plan.minutesNeeded} min → start ${plan.startLabel} IST (finish by ${plan.finishLabel})`,
+  if (enqueueInFlight) return null;
+  if (Date.now() < networkCooldownUntil) return null;
+
+  enqueueInFlight = true;
+  try {
+    const plan = await withRetry(
+      `planTodaysEnqueue(${reason})`,
+      () => planTodaysEnqueue(),
+      { attempts: 3, baseDelayMs: 1500 },
     );
-    lastLoggedPlanKey = planKey;
+    clearTransientNetworkFailure();
+
+    const planKey = `${istDateString()}:${plan.eligibleUsers}:${plan.startLabel}`;
+    if (planKey !== lastLoggedPlanKey) {
+      console.log(
+        `[worker] Schedule plan: ${plan.eligibleUsers} users → ${plan.batches} batch(es) × ${plan.minutesPerUser} min (+${plan.bufferMinutes} buffer) = ${plan.minutesNeeded} min → start ${plan.startLabel} IST (finish by ${plan.finishLabel})`,
+      );
+      lastLoggedPlanKey = planKey;
+    }
+
+    if (!isAfterDynamicStart(plan)) return plan;
+
+    // Even if we think we enqueued, re-check Supabase for missing users (DNS partial failures)
+    const day = istDateString();
+    if (lastEnqueuedForDate === day) {
+      try {
+        const status = await getDailyEnqueueStatus(day);
+        if (status.allAccountedFor) return plan;
+        console.warn(
+          `[worker] Catch-up: ${status.withJob}/${status.eligible} jobs present — re-enqueueing missing users.`,
+        );
+        lastEnqueuedForDate = null;
+      } catch (err) {
+        if (isTransientFetchError(err)) {
+          noteTransientNetworkFailure("enqueue-status");
+          return plan;
+        }
+        throw err;
+      }
+    }
+
+    // Prefer within morning window, but still catch up after finish+grace until noon IST
+    // so overnight DNS outages don't skip the whole day.
+    const nowM = istMinutesFromMidnight();
+    const catchUpUntil = 12 * 60; // noon IST
+    const inWindow = isWithinDynamicEnqueueWindow(plan);
+    const lateCatchUp = nowM <= catchUpUntil;
+
+    if (inWindow || lateCatchUp) {
+      await enqueueDaily(reason);
+    }
+
+    return plan;
+  } catch (err) {
+    if (isTransientFetchError(err)) {
+      noteTransientNetworkFailure(`enqueue(${reason})`);
+      const now = Date.now();
+      // Avoid flooding journal every minute during DNS outages
+      if (now - lastEnqueueFailLogAt >= 60_000) {
+        console.warn(
+          `[worker] Dynamic enqueue deferred (Supabase/DNS unreachable) — will retry when network recovers.`,
+        );
+        lastEnqueueFailLogAt = now;
+      }
+      return null;
+    }
+    throw err;
+  } finally {
+    enqueueInFlight = false;
   }
-
-  if (lastEnqueuedForDate === istDateString()) return plan;
-
-  if (isAfterDynamicStart(plan)) {
-    await enqueueDaily(reason);
-  }
-
-  return plan;
 }
 
 async function safeReclaim(): Promise<void> {
@@ -166,6 +263,15 @@ async function safeReclaim(): Promise<void> {
     if (reclaimed > 0) {
       console.log(`[worker] Reclaimed ${reclaimed} stale job(s) from crashed workers`);
     }
+    // Push any activity logs that failed during a DNS blip
+    await flushPendingActivityLogs().catch((err) => {
+      if (!isTransientFetchError(err)) {
+        console.warn(
+          "[worker] pending activity log flush:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    });
     clearTransientNetworkFailure();
   } catch (err) {
     if (isTransientFetchError(err)) {
@@ -281,6 +387,7 @@ async function pollLoop() {
 
   try {
     await bootstrapEnqueueStateFromSupabase();
+    await flushPendingActivityLogs().catch(() => undefined);
     await maybeEnqueueBySchedule("startup-catchup");
   } catch (err) {
     console.error("[worker] Startup schedule check failed:", err);
@@ -312,9 +419,13 @@ async function main() {
   cron.schedule(
     "* * * * *",
     () => {
-      void maybeEnqueueBySchedule("cron-minute").catch((err) =>
-        console.error("[worker] Dynamic enqueue check failed:", err),
-      );
+      void maybeEnqueueBySchedule("cron-minute").catch((err) => {
+        if (isTransientFetchError(err)) {
+          noteTransientNetworkFailure("cron-enqueue");
+          return;
+        }
+        console.error("[worker] Dynamic enqueue check failed:", err);
+      });
     },
     { timezone: "Asia/Kolkata" },
   );

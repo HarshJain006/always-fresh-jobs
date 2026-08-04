@@ -13,6 +13,7 @@
 import { listActiveAutomationUsers } from "@/database/userAutomation";
 import { getAuthoritativeAccess } from "@/security/accessControl";
 import { enqueueJob, findDailyJobForDay } from "@/queue/jobs";
+import { isTransientFetchError } from "@/lib/retry";
 import { istDateString } from "@/queue/types";
 
 export interface EnqueueDailyResult {
@@ -158,7 +159,10 @@ async function isUserEligibleForDaily(u: {
   try {
     const access = await getAuthoritativeAccess(u.userId);
     return access.allowed;
-  } catch {
+  } catch (err) {
+    // Transient DNS/network must NOT mark the user ineligible — that would
+    // skip today's enqueue for everyone during a Pi Wi‑Fi blip.
+    if (isTransientFetchError(err)) throw err;
     return false;
   }
 }

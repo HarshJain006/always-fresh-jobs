@@ -2,23 +2,46 @@
  * Retry helpers for transient network / Supabase fetch failures.
  */
 
+function collectErrorText(err: unknown, depth = 0): string {
+  if (depth > 5 || err == null) return "";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) {
+    const cause =
+      "cause" in err && err.cause != null ? collectErrorText(err.cause, depth + 1) : "";
+    return `${err.message}\n${err.name}\n${cause}`;
+  }
+  if (typeof err === "object") {
+    const o = err as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    return [o.message, o.details, o.hint, o.code]
+      .filter((v) => v != null && String(v).length > 0)
+      .map(String)
+      .join("\n");
+  }
+  return String(err);
+}
+
 export function isTransientFetchError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  const lower = msg.toLowerCase();
+  const haystack = collectErrorText(err).toLowerCase();
+
   return (
-    lower.includes("fetch failed") ||
-    lower.includes("network") ||
-    lower.includes("econnreset") ||
-    lower.includes("etimedout") ||
-    lower.includes("econnrefused") ||
-    lower.includes("socket hang up") ||
-    lower.includes("und_err") ||
-    lower.includes("other side closed") ||
-    lower.includes("timeout") ||
-    lower.includes("503") ||
-    lower.includes("502") ||
-    lower.includes("504") ||
-    lower.includes("429")
+    haystack.includes("fetch failed") ||
+    haystack.includes("network") ||
+    haystack.includes("econnreset") ||
+    haystack.includes("etimedout") ||
+    haystack.includes("econnrefused") ||
+    haystack.includes("socket hang up") ||
+    haystack.includes("und_err") ||
+    haystack.includes("other side closed") ||
+    haystack.includes("timeout") ||
+    haystack.includes("aborted") ||
+    haystack.includes("eai_again") ||
+    haystack.includes("enotfound") ||
+    haystack.includes("getaddrinfo") ||
+    haystack.includes("dns") ||
+    haystack.includes("503") ||
+    haystack.includes("502") ||
+    haystack.includes("504") ||
+    haystack.includes("429")
   );
 }
 
