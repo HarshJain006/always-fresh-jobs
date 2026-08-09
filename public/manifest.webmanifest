@@ -1,14 +1,19 @@
 {
+  "id": "/",
   "name": "DailyResume",
   "short_name": "DailyResume",
   "description": "Keep your resume fresh on job portals every day — automatically.",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
   "background_color": "#0f172a",
   "theme_color": "#0f766e",
   "lang": "en-IN",
+  "dir": "ltr",
+  "categories": ["productivity", "business"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/pwa-icon-192.png",

@@ -131,6 +131,7 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   useEffect(() => {
+    // Side-effect import already started install capture; ensure SW is registered
     registerPwa();
   }, []);
 

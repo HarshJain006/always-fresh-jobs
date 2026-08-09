@@ -14,3 +14,22 @@
 # Headers: x-cron-secret: <CRON_SECRET>
 # /api/cron/daily-refresh — enqueues resume jobs into Supabase
 # /api/cron/reminders    — sends trial/subscription expiry emails (run daily)
+
+# PWA installability — correct MIME + no stale SW/manifest
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Content-Type = "application/javascript; charset=utf-8"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "no-cache"
+    Content-Type = "application/manifest+json; charset=utf-8"
+
+[[headers]]
+  for = "/pwa-icon-*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"

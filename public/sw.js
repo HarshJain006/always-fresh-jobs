@@ -1,5 +1,5 @@
 /* DailyResume PWA — cache shell assets; network-first for pages/APIs */
-const CACHE = "dailyresume-v2";
+const CACHE = "dailyresume-v3";
 const PRECACHE = [
   "/",
   "/download",
@@ -20,6 +20,12 @@ self.addEventListener("activate", (event) => {
       Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))),
     ).then(() => self.clients.claim()),
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("fetch", (event) => {
