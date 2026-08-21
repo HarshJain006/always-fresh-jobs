@@ -7,7 +7,7 @@
 
 import { getClient } from "./connection";
 import type { AccountStatus, SubscriptionStatus, User } from "./schemas";
-import { getSupabaseServer, isSupabaseConfigured } from "@/lib/supabase";
+import { getSupabaseServer, isSupabaseConfigured, isSupabaseServerConfigured } from "@/lib/supabase";
 import { calendarDaysRemainingIst } from "@/lib/istCalendar";
 import { TRIAL_DAYS } from "@/lib/trial";
 
@@ -87,12 +87,14 @@ export function isTrialPending(user: User): boolean {
 }
 
 /**
- * Start the free-trial clock exactly once (on first Start daily refresh).
- * No-op if already started or user has paid access.
+ * Start the free-trial clock exactly once (on first Start daily refresh / first job).
+ * Must persist to Supabase — never "succeed" only in memory (that left trial pending forever).
  */
-export async function startTrialClockIfNeeded(userId: string): Promise<User | null> {
+export async function startTrialClockIfNeeded(userId: string): Promise<User> {
   const user = await findUserById(userId);
-  if (!user) return null;
+  if (!user) {
+    throw new Error("Account not found. Sign out and sign in again with Google.");
+  }
 
   const paidExp = user.subscription_expire_at
     ? new Date(user.subscription_expire_at).getTime()
@@ -102,25 +104,51 @@ export async function startTrialClockIfNeeded(userId: string): Promise<User | nu
 
   const now = new Date();
   const expire = new Date(now.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
-  const updated = await updateUser(
-    userId,
-    {
-      trial_started_at: now.toISOString(),
-      trial_expire_at: expire.toISOString(),
-      trial_used: true,
-      subscription_status: "trial",
-      subscription_plan: "free_trial",
-    },
-    { allowBillingFields: true },
-  );
-  return updated ?? {
-    ...user,
+  const patch = {
     trial_started_at: now.toISOString(),
     trial_expire_at: expire.toISOString(),
     trial_used: true,
-    subscription_status: "trial",
-    subscription_plan: "free_trial",
+    subscription_status: "trial" as const,
+    subscription_plan: "free_trial" as const,
   };
+
+  if (isSupabaseServerConfigured()) {
+    const { data, error } = await getSupabaseServer()
+      .from("users")
+      .update(patch)
+      .eq("id", userId)
+      .eq("trial_used", false)
+      .select("*")
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Could not start free trial: ${error.message}`);
+    }
+
+    // Race: another request started the clock first
+    if (!data) {
+      const again = await findUserById(userId);
+      if (again?.trial_used) return again;
+      throw new Error("Could not start free trial — please try Start again.");
+    }
+
+    const started = rowToUser(data);
+    users.set(started.id, started);
+    return started;
+  }
+
+  if (isSupabaseConfigured()) {
+    // Publishable key present but no service role — cannot reliably write billing fields
+    throw new Error(
+      "Could not start free trial — SUPABASE_SERVICE_ROLE_KEY is required on the server/worker.",
+    );
+  }
+
+  const updated = await updateUser(userId, patch, { allowBillingFields: true });
+  if (!updated?.trial_used) {
+    throw new Error("Could not start free trial — please try Start again.");
+  }
+  return updated;
 }
 
 export async function findUserByGoogleId(googleId: string): Promise<User | null> {

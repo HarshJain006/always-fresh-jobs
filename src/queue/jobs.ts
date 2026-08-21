@@ -8,6 +8,7 @@
 import { getSupabaseServer, isSupabaseConfigured } from "@/lib/supabase";
 import { isTransientFetchError, withRetry } from "@/lib/retry";
 import { isFatalCredentialError, isPermanentSetupError, isRetryableUploadError } from "@/queue/jobErrors";
+import { getUserAutomation, saveUserAutomation } from "@/database/userAutomation";
 import {
   type AutomationJob,
   type JobType,
@@ -326,16 +327,21 @@ export async function reclaimStaleJobs(): Promise<number> {
 
 /**
  * After a failed Selenium run:
- * - wrong password / missing setup → stop (dead)
+ * - wrong password / missing setup → stop (dead) + pause automation (no more daily retries)
  * - login page / upload flake → smart retry with backoff (bounded attempts)
  * - anything else → dead
  */
 export async function applyJobFailurePolicy(
   jobId: string,
   message: string,
+  userId?: string,
 ): Promise<"dead" | "retry" | "exhausted"> {
   if (isPermanentSetupError(message) || isFatalCredentialError(message)) {
     await markJobDeadPermanent(jobId, message);
+    const uid = userId ?? (await getJobUserId(jobId));
+    if (uid) {
+      await pauseAutomationAfterCredentialFailure(uid, message);
+    }
     return "dead";
   }
   if (isRetryableUploadError(message)) {
@@ -343,6 +349,100 @@ export async function applyJobFailurePolicy(
   }
   await markJobDeadPermanent(jobId, message);
   return "dead";
+}
+
+async function getJobUserId(jobId: string): Promise<string | null> {
+  const { data, error } = await getSupabaseServer()
+    .from("automation_jobs")
+    .select("user_id")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return String((data as { user_id: string }).user_id);
+}
+
+/**
+ * Wrong Naukri password must stop the daily loop immediately.
+ * Otherwise the same failure re-enqueues every morning for the whole trial.
+ */
+export async function pauseAutomationAfterCredentialFailure(
+  userId: string,
+  message: string,
+): Promise<void> {
+  try {
+    const record = await getUserAutomation(userId);
+    if (record.automationState === "running") {
+      await saveUserAutomation({
+        ...record,
+        userId,
+        automationState: "paused",
+      });
+      console.warn(
+        `[queue] Paused automation for user=${userId} after credential/setup failure: ${message.slice(0, 120)}`,
+      );
+    }
+    await cancelPendingJobsForUser(userId);
+  } catch (err) {
+    console.error(
+      `[queue] Failed to pause after credential failure user=${userId}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+/**
+ * True when the latest finished Naukri job is a permanent credential/setup failure
+ * and the user has not explicitly re-saved credentials / pressed Start since then.
+ */
+export async function hasUnresolvedCredentialFailure(userId: string): Promise<boolean> {
+  const { data, error } = await getSupabaseServer()
+    .from("automation_jobs")
+    .select("status, error, result_message, completed_at, updated_at")
+    .eq("user_id", userId)
+    .eq("platform", "naukri")
+    .in("status", ["dead", "failed", "completed"])
+    .order("completed_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return false;
+
+  const row = data as {
+    status: string;
+    error?: string | null;
+    result_message?: string | null;
+    completed_at?: string | null;
+    updated_at?: string | null;
+  };
+
+  if (row.status === "completed") return false;
+
+  const msg = `${row.error || ""} ${row.result_message || ""}`.trim();
+  if (!isFatalCredentialError(msg) && !isPermanentSetupError(msg)) return false;
+
+  const failedAt = new Date(row.completed_at || row.updated_at || 0).getTime();
+  if (!Number.isFinite(failedAt) || failedAt <= 0) return true;
+
+  try {
+    const record = await getUserAutomation(userId);
+    const naukri = record.platforms.find((p) => p.id === "naukri");
+    const ack = naukri?.credentialRetryAt ? new Date(naukri.credentialRetryAt).getTime() : 0;
+    if (ack > failedAt) return false;
+  } catch {
+    /* if we can't read automation, keep blocking */
+  }
+
+  return true;
+}
+
+/** Call when user saves Naukri password or presses Start/Resume after a credential stop. */
+export async function acknowledgeCredentialRetry(userId: string): Promise<void> {
+  const record = await getUserAutomation(userId);
+  const now = new Date().toISOString();
+  const platforms = record.platforms.map((p) =>
+    p.id === "naukri" ? { ...p, credentialRetryAt: now } : p,
+  );
+  await saveUserAutomation({ ...record, userId, platforms });
 }
 
 export async function markJobDeadPermanent(jobId: string, message: string): Promise<void> {

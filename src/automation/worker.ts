@@ -12,6 +12,7 @@ import { getResumePath, getResumeFileName } from "@/storage/storage";
 import type { PlatformId } from "@/database/schemas";
 import { getAuthoritativeAccess } from "@/security/accessControl";
 import { shouldWriteUserActivityLog } from "@/queue/jobErrors";
+import { startTrialClockIfNeeded } from "@/database/users";
 
 export interface UserRunResult {
   userId: string;
@@ -64,6 +65,14 @@ export async function runPlatformForUser(
   if (record.automationState !== "running") {
     const message = "Skipped — automation is not active for this account.";
     // Do not pollute Recent activity for idle/paused accounts with stale queue jobs
+    return finish(userId, platform, false, message, started, false);
+  }
+
+  // Ensure trial clock is ticking in Supabase (fixes stuck pending trials that never expire)
+  try {
+    await startTrialClockIfNeeded(userId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not start free trial";
     return finish(userId, platform, false, message, started, false);
   }
 

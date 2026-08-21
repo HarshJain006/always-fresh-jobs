@@ -12,7 +12,12 @@
 
 import { listActiveAutomationUsers } from "@/database/userAutomation";
 import { getAuthoritativeAccess } from "@/security/accessControl";
-import { enqueueJob, findDailyJobForDay } from "@/queue/jobs";
+import {
+  enqueueJob,
+  findDailyJobForDay,
+  hasUnresolvedCredentialFailure,
+  pauseAutomationAfterCredentialFailure,
+} from "@/queue/jobs";
 import { isTransientFetchError } from "@/lib/retry";
 import { istDateString } from "@/queue/types";
 
@@ -269,6 +274,24 @@ export async function enqueueDailyJobsForEligibleUsers(
     if (!(await isUserEligibleForDaily(u))) {
       result.skipped++;
       continue;
+    }
+
+    // Stuck accounts: wrong password left automation "running" → pause, do not re-queue
+    try {
+      if (await hasUnresolvedCredentialFailure(u.userId)) {
+        await pauseAutomationAfterCredentialFailure(
+          u.userId,
+          "Naukri login failed — incorrect username or password (blocked until credentials are updated).",
+        );
+        result.skipped++;
+        continue;
+      }
+    } catch (err) {
+      if (isTransientFetchError(err)) throw err;
+      console.warn(
+        `[enqueue] credential-block check failed for ${u.userId}:`,
+        err instanceof Error ? err.message : err,
+      );
     }
 
     try {

@@ -18,7 +18,7 @@ import { toUserFacingActivityMessage } from "@/automation/activityMessage";
 import type { PlatformId } from "@/database/schemas";
 import { assertAutomationAccess, getAuthoritativeAccess } from "@/security/accessControl";
 import { startTrialClockIfNeeded } from "@/database/users";
-import { enqueueJob, getRecentJobsForUser, cancelPendingJobsForUser } from "@/queue/jobs";
+import { enqueueJob, getRecentJobsForUser, cancelPendingJobsForUser, acknowledgeCredentialRetry } from "@/queue/jobs";
 
 type AuthInput = { sessionToken: string };
 
@@ -106,6 +106,8 @@ export const saveNaukriCredentials = createServerFn({ method: "POST" })
         password: encryptedPassword,
       },
     });
+    // Allow daily jobs again after user fixes Naukri password
+    await acknowledgeCredentialRetry(userId).catch(() => undefined);
     return { ok: true };
   });
 
@@ -188,7 +190,10 @@ export const setAutomationState = createServerFn({ method: "POST" })
     const userId = dbUser.id;
     if (data.state === "running") {
       // Start the 5-day free-trial clock on first Start (once per Google account)
-      await startTrialClockIfNeeded(userId);
+      const started = await startTrialClockIfNeeded(userId);
+      if (!started.trial_used) {
+        throw new Error("Could not start your free trial. Please try again.");
+      }
       await assertAutomationAccess(userId);
     }
     const record = await getUserAutomation(userId);
@@ -199,6 +204,11 @@ export const setAutomationState = createServerFn({ method: "POST" })
       if (!naukri?.connected) throw new Error("Connect Naukri first");
     }
     await saveUserAutomation({ ...record, userId, automationState: data.state });
+
+    // Start / Resume after wrong-password pause — allow the next daily enqueue
+    if (data.state === "running") {
+      await acknowledgeCredentialRetry(userId).catch(() => undefined);
+    }
 
     // Start = opt into the morning schedule only. Do NOT enqueue immediately
     // (avoids spam runs / activity logs before the daily window).

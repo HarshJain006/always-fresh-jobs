@@ -78,7 +78,7 @@ async function processOneJob(workerId: string): Promise<boolean> {
       console.log(`[retry] ${job.id} OK — ${result.message}`);
     } else {
       await completeJob(job.id, workerId, false, result.message);
-      const policy = await applyJobFailurePolicy(job.id, result.message);
+      const policy = await applyJobFailurePolicy(job.id, result.message, job.user_id);
       console.log(
         `[retry] ${job.id} FAIL — ${result.message} → ${policy}` +
           (silentUserLogs ? " (not written to user activity)" : ""),
@@ -89,7 +89,7 @@ async function processOneJob(workerId: string): Promise<boolean> {
     console.error(`[retry] Job ${job.id} error:`, message);
     try {
       await completeJob(job.id, workerId, false, message);
-      await applyJobFailurePolicy(job.id, message);
+      await applyJobFailurePolicy(job.id, message, job.user_id);
     } catch (completeErr) {
       console.error(
         `[retry] complete failed for ${job.id}:`,

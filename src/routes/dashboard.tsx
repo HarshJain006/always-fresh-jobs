@@ -506,8 +506,8 @@ function Dashboard() {
                   </Button>
                   <p className="mt-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-warning-foreground">
                     <span className="font-semibold">Important:</span> Double-check that your Naukri
-                    password is correct. A wrong password will fail daily refresh and show up in
-                    Recent activity.
+                    password is correct. A wrong password pauses daily refresh immediately and shows
+                    up in Recent activity — update your Naukri credentials, then press Start again.
                   </p>
                 </div>
               </form>

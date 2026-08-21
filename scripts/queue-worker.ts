@@ -328,9 +328,9 @@ async function processOneJob(workerId: string): Promise<boolean> {
       console.log(`[worker] ${job.id} uploaded OK`);
     } else {
       await completeJob(job.id, workerId, false, result.message);
-      const policy = await applyJobFailurePolicy(job.id, result.message);
+      const policy = await applyJobFailurePolicy(job.id, result.message, job.user_id);
       if (policy === "dead") {
-        console.log(`[worker] ${job.id} stopped — wrong password / setup`);
+        console.log(`[worker] ${job.id} stopped — wrong password / setup (automation paused)`);
       } else if (policy === "exhausted") {
         console.log(`[worker] ${job.id} gave up for today — will try tomorrow`);
       } else {
@@ -342,9 +342,9 @@ async function processOneJob(workerId: string): Promise<boolean> {
     console.error(`[worker] Job ${job.id} error:`, message);
     try {
       await completeJob(job.id, workerId, false, message);
-      const policy = await applyJobFailurePolicy(job.id, message);
+      const policy = await applyJobFailurePolicy(job.id, message, job.user_id);
       if (policy === "dead") {
-        console.log(`[worker] ${job.id} stopped — wrong password / setup`);
+        console.log(`[worker] ${job.id} stopped — wrong password / setup (automation paused)`);
       } else if (policy === "exhausted") {
         console.log(`[worker] ${job.id} gave up for today — will try tomorrow`);
       } else {

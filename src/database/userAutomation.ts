@@ -26,6 +26,8 @@ export interface UserAutomationRecord {
     name: string;
     connected: boolean;
     last: string | null;
+    /** ISO time when user saved creds / pressed Start after a wrong-password stop */
+    credentialRetryAt?: string | null;
   }[];
   automationState: AutomationStatus;
   lastRunAt: string | null;

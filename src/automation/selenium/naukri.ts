@@ -487,34 +487,38 @@ export async function naukriLogin(
         }
       }
 
+      // Form was filled + submitted. Still seeing the password field means login
+      // did not succeed — treat as wrong credentials (not a flaky page-load).
+      // Naukri often shows a weak/slow error banner; missing text must NOT retry forever.
       const stillOnLogin =
-        (await waitTillAnyPresent(driver, PASSWORD_CANDIDATES, 2)) !== null;
+        (await waitTillAnyPresent(driver, PASSWORD_CANDIDATES, 3)) !== null;
       let errorText = "";
       try {
+        // Give Naukri a moment to render the error banner
+        await sleep(1500);
         if (await isElementPresent(driver, By.xpath(loginErrorXpath))) {
           const errEl = await getElement(driver, loginErrorXpath, "XPATH");
           errorText = ((await errEl?.getText()) || "").trim();
+        }
+        if (!errorText) {
+          const body = ((await driver.findElement(By.tagName("body")).getText()) || "").slice(
+            0,
+            2000,
+          );
+          const m = body.match(
+            /invalid details|incorrect[^\n]{0,40}(password|username)|wrong[^\n]{0,40}(password|username)|invalid username|invalid password|email id\s*[-–]\s*password[^\n]{0,60}/i,
+          );
+          if (m) errorText = m[0];
         }
       } catch {
         /* ignore */
       }
 
       if (stillOnLogin) {
-        const explicitCredFail =
-          /invalid details|incorrect.*(password|username)|wrong.*(password|username)|invalid username|invalid password|email id\s*[-–]\s*password/i.test(
-            errorText,
-          );
-        if (explicitCredFail) {
-          const message =
-            "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
-          logMsg(message + (errorText ? ` (Naukri: ${errorText})` : ""));
-          return { status: false, driver, error: message };
-        }
-        lastError = PAGE_LOAD_RETRY_MSG;
-        logMsg(`${lastError}${errorText ? ` (page: ${errorText})` : ""}`);
-        await tearDown(driver);
-        driver = null;
-        continue;
+        const message =
+          "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
+        logMsg(message + (errorText ? ` (Naukri: ${errorText})` : " (still on login after submit)"));
+        return { status: false, driver, error: message };
       }
 
       lastError = "Naukri login could not be confirmed — will retry.";
