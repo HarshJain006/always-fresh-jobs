@@ -467,7 +467,7 @@ async function collectCandidatesForUser(user: User, nowMs: number): Promise<Emai
 }
 
 /** Drain queued emails from prior days (or today's overflow), highest priority first. */
-async function processQueuedEmails(): Promise<number> {
+export async function processQueuedEmails(): Promise<number> {
   const { data, error } = await getSupabaseServer()
     .from("email_reminder_events")
     .select("*")
@@ -527,6 +527,22 @@ async function processQueuedEmails(): Promise<number> {
   }
 
   return sent;
+}
+
+/** Process only queued rows (credential failures, cap overflow). Used by /api/cron/mail-queue. */
+export async function runMailQueueFlush(): Promise<{
+  sent: number;
+  sentToday: number;
+  cap: number;
+}> {
+  if (!isSupabaseServerConfigured() || !isResendConfigured()) {
+    return { sent: 0, sentToday: 0, cap: DAILY_EMAIL_CAP };
+  }
+
+  resetEmailBatchCounter();
+  const sent = await processQueuedEmails();
+  const sentToday = await countEmailsSentTodayIst();
+  return { sent, sentToday, cap: DAILY_EMAIL_CAP };
 }
 
 /**

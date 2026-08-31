@@ -114,13 +114,20 @@ npm ci
 ### `.env` on the Pi (required)
 
 ```bash
+VITE_APP_URL=https://dailyresume.in
 VITE_SUPABASE_URL=
 VITE_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ENCRYPTION_KEY=
 SESSION_SECRET=
+CRON_SECRET=              # same value as Netlify — triggers mail queue after wrong-password
 
 WORKER_ID=rpi-1
+```
+
+**Pi does not need `RESEND_*` keys.** Wrong-password emails are queued in Supabase; the Pi calls `POST /api/cron/mail-queue` on Netlify to send them immediately.
+
+```bash
 QUEUE_CONCURRENCY=4          # 4 resumes at the same time
 QUEUE_MINUTES_PER_USER=3     # assumed time per resume
 QUEUE_BUFFER_MINUTES=5       # safety margin before 8:00 AM
@@ -180,7 +187,7 @@ sudo journalctl -u dailyresume-worker -f
 | User clicks Start | Netlify | Sets automation `running` + may enqueue today's job |
 | Dynamic morning (e.g. 7:40) | Pi worker | Enqueue `daily_refresh` for eligible users |
 | Always | Pi (4 slots) | `claim` → Selenium → `complete` + write `automation_logs` |
-| Wrong Naukri password | Pi | Log failure to Recent activity: incorrect username/password |
+| Wrong Naukri password | Pi | Log failure + queue email → Netlify sends via `/api/cron/mail-queue` |
 | Pi crash mid-job | Supabase | Lease expires → status back to `pending` |
 
 ---

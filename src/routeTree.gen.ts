@@ -16,6 +16,7 @@ import { Route as DownloadRouteImport } from './routes/download'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiCronRemindersRouteImport } from './routes/api/cron/reminders'
+import { Route as ApiCronMailQueueRouteImport } from './routes/api/cron/mail-queue'
 import { Route as ApiCronDailyRefreshRouteImport } from './routes/api/cron/daily-refresh'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -53,6 +54,11 @@ const ApiCronRemindersRoute = ApiCronRemindersRouteImport.update({
   path: '/api/cron/reminders',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCronMailQueueRoute = ApiCronMailQueueRouteImport.update({
+  id: '/api/cron/mail-queue',
+  path: '/api/cron/mail-queue',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiCronDailyRefreshRoute = ApiCronDailyRefreshRouteImport.update({
   id: '/api/cron/daily-refresh',
   path: '/api/cron/daily-refresh',
@@ -67,6 +73,7 @@ export interface FileRoutesByFullPath {
   '/pricing': typeof PricingRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/cron/daily-refresh': typeof ApiCronDailyRefreshRoute
+  '/api/cron/mail-queue': typeof ApiCronMailQueueRoute
   '/api/cron/reminders': typeof ApiCronRemindersRoute
 }
 export interface FileRoutesByTo {
@@ -77,6 +84,7 @@ export interface FileRoutesByTo {
   '/pricing': typeof PricingRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/cron/daily-refresh': typeof ApiCronDailyRefreshRoute
+  '/api/cron/mail-queue': typeof ApiCronMailQueueRoute
   '/api/cron/reminders': typeof ApiCronRemindersRoute
 }
 export interface FileRoutesById {
@@ -88,6 +96,7 @@ export interface FileRoutesById {
   '/pricing': typeof PricingRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/cron/daily-refresh': typeof ApiCronDailyRefreshRoute
+  '/api/cron/mail-queue': typeof ApiCronMailQueueRoute
   '/api/cron/reminders': typeof ApiCronRemindersRoute
 }
 export interface FileRouteTypes {
@@ -100,6 +109,7 @@ export interface FileRouteTypes {
     | '/pricing'
     | '/sitemap.xml'
     | '/api/cron/daily-refresh'
+    | '/api/cron/mail-queue'
     | '/api/cron/reminders'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -110,6 +120,7 @@ export interface FileRouteTypes {
     | '/pricing'
     | '/sitemap.xml'
     | '/api/cron/daily-refresh'
+    | '/api/cron/mail-queue'
     | '/api/cron/reminders'
   id:
     | '__root__'
@@ -120,6 +131,7 @@ export interface FileRouteTypes {
     | '/pricing'
     | '/sitemap.xml'
     | '/api/cron/daily-refresh'
+    | '/api/cron/mail-queue'
     | '/api/cron/reminders'
   fileRoutesById: FileRoutesById
 }
@@ -131,6 +143,7 @@ export interface RootRouteChildren {
   PricingRoute: typeof PricingRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiCronDailyRefreshRoute: typeof ApiCronDailyRefreshRoute
+  ApiCronMailQueueRoute: typeof ApiCronMailQueueRoute
   ApiCronRemindersRoute: typeof ApiCronRemindersRoute
 }
 
@@ -185,6 +198,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCronRemindersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cron/mail-queue': {
+      id: '/api/cron/mail-queue'
+      path: '/api/cron/mail-queue'
+      fullPath: '/api/cron/mail-queue'
+      preLoaderRoute: typeof ApiCronMailQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/cron/daily-refresh': {
       id: '/api/cron/daily-refresh'
       path: '/api/cron/daily-refresh'
@@ -203,6 +223,7 @@ const rootRouteChildren: RootRouteChildren = {
   PricingRoute: PricingRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiCronDailyRefreshRoute: ApiCronDailyRefreshRoute,
+  ApiCronMailQueueRoute: ApiCronMailQueueRoute,
   ApiCronRemindersRoute: ApiCronRemindersRoute,
 }
 export const routeTree = rootRouteImport

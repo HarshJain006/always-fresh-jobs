@@ -1,9 +1,9 @@
 /**
  * Transactional email via Resend (replaces Brevo SMTP / nodemailer).
  * Server-only — requires RESEND_API_KEY on Netlify.
+ * Uses dynamic import so Pi workers without the `resend` package do not crash at startup.
  */
 
-import { Resend } from "resend";
 import { getEnv } from "@/lib/env";
 
 export type MailInput = {
@@ -28,14 +28,18 @@ export function isResendConfigured(): boolean {
   return Boolean(apiKey() && fromAddress());
 }
 
-let client: Resend | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let client: any = null;
 
-function getClient(): Resend {
+async function getClient() {
   const key = apiKey();
   if (!key) {
     throw new Error("Resend is not configured. Set RESEND_API_KEY on the server.");
   }
-  if (!client) client = new Resend(key);
+  if (!client) {
+    const { Resend } = await import("resend");
+    client = new Resend(key);
+  }
   return client;
 }
 
@@ -47,22 +51,34 @@ export async function sendResendMail(input: MailInput): Promise<boolean> {
   const to = input.to?.trim();
   if (!to) return false;
 
-  const { data, error } = await getClient().emails.send({
-    from: fromAddress(),
-    to: [to],
-    subject: input.subject,
-    html: input.html,
-    text: input.text,
-  });
+  try {
+    const { data, error } = await (await getClient()).emails.send({
+      from: fromAddress(),
+      to: [to],
+      subject: input.subject,
+      html: input.html,
+      text: input.text,
+    });
 
-  if (error) {
-    throw new Error(error.message || JSON.stringify(error));
+    if (error) {
+      throw new Error(error.message || JSON.stringify(error));
+    }
+
+    if (!data?.id) {
+      throw new Error("Resend returned no message id");
+    }
+
+    console.info(`[mail] sent id=${data.id} to=${to}`);
+    return true;
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message.includes("Cannot find package 'resend'") ||
+        err.message.includes("ERR_MODULE_NOT_FOUND"))
+    ) {
+      console.warn("[mail] resend package not installed; skipping email send.");
+      return false;
+    }
+    throw err;
   }
-
-  if (!data?.id) {
-    throw new Error("Resend returned no message id");
-  }
-
-  console.info(`[mail] sent id=${data.id} to=${to}`);
-  return true;
 }
