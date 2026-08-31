@@ -2,7 +2,8 @@
 
 import { calendarDaysRemainingIst } from "@/lib/istCalendar";
 
-export const REPEAT_INTERVAL_DAYS = 3;
+/** Days between repurchase / win-back emails after trial or plan expires. */
+export const REPEAT_INTERVAL_DAYS = 2;
 export const REPEAT_MAX_SENDS = 5;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -16,7 +17,7 @@ export type LastSentReminder = {
 /**
  * After access ends (trial or paid plan expired):
  * - Send #1 on or after the anchor (expiry moment)
- * - Then one more every 3 days, up to 5 total
+ * - Then one more every REPEAT_INTERVAL_DAYS, up to 5 total
  * - Never skip a sequence if cron missed a day (uses last sent + interval)
  */
 export function nextRepurchaseSequence(
@@ -33,14 +34,14 @@ export function nextRepurchaseSequence(
   return lastSent.sequenceNo + 1;
 }
 
-/** Days before subscription expiry when each ending-soon email is due (5 sends). */
-export const SUBSCRIPTION_ENDING_MILESTONE_DAYS = [12, 9, 6, 3, 0] as const;
-
 /**
  * Before subscription expires (active paid plan):
- * - 5 reminders at ~12, 9, 6, 3, and 0 days remaining
- * - At least 3 days between sends (whichever is later: milestone or interval)
+ * 4 reminders at 7, 3, 1, and 0 days remaining (IST calendar days).
+ * Focused on actionable windows — better for 1–3 month plans than 12/9/6/3/0.
  */
+export const SUBSCRIPTION_ENDING_MILESTONE_DAYS = [7, 3, 1, 0] as const;
+export const SUBSCRIPTION_ENDING_MAX_SENDS = SUBSCRIPTION_ENDING_MILESTONE_DAYS.length;
+
 export function nextSubscriptionEndingSequence(
   expireMs: number,
   nowMs: number,
@@ -48,7 +49,7 @@ export function nextSubscriptionEndingSequence(
 ): number | null {
   if (!Number.isFinite(expireMs) || nowMs >= expireMs) return null;
 
-  const daysLeft = (expireMs - nowMs) / DAY_MS;
+  const daysLeft = calendarDaysRemainingIst(new Date(expireMs).toISOString(), new Date(nowMs));
 
   for (let i = 0; i < SUBSCRIPTION_ENDING_MILESTONE_DAYS.length; i++) {
     const seq = i + 1;
@@ -56,7 +57,7 @@ export function nextSubscriptionEndingSequence(
     if (daysLeft > milestone) continue;
 
     if (!lastSent) return seq;
-    if (lastSent.sequenceNo >= REPEAT_MAX_SENDS) return null;
+    if (lastSent.sequenceNo >= SUBSCRIPTION_ENDING_MAX_SENDS) return null;
     if (seq <= lastSent.sequenceNo) continue;
     if (nowMs < lastSent.sentAtMs + REPEAT_INTERVAL_MS) return null;
 
@@ -66,13 +67,13 @@ export function nextSubscriptionEndingSequence(
   return null;
 }
 
-/** Free trial: email on second-last day (2 days left) and last day (1 day left). */
-export const TRIAL_ENDING_MAX_SENDS = 2;
+/** Free trial (5 days): warn at 3, 2, and 1 calendar days remaining. */
+export const TRIAL_ENDING_MILESTONE_DAYS = [3, 2, 1] as const;
+export const TRIAL_ENDING_MAX_SENDS = TRIAL_ENDING_MILESTONE_DAYS.length;
 
 /**
- * Before free trial expires — exactly 2 emails:
- * - sequence 1 when IST calendar days remaining === 2 (second-last day)
- * - sequence 2 when IST calendar days remaining === 1 (last day)
+ * Before free trial expires — 3 emails at 3, 2, and 1 IST calendar days left.
+ * Cron should run once daily (~9–10 AM IST) so each milestone is caught.
  */
 export function nextTrialEndingSequence(
   trialExpireIso: string,
@@ -83,13 +84,21 @@ export function nextTrialEndingSequence(
   if (!Number.isFinite(expireMs) || nowMs >= expireMs) return null;
 
   const daysLeft = calendarDaysRemainingIst(trialExpireIso, new Date(nowMs));
-  if (daysLeft !== 2 && daysLeft !== 1) return null;
+  const milestoneIndex = TRIAL_ENDING_MILESTONE_DAYS.indexOf(
+    daysLeft as (typeof TRIAL_ENDING_MILESTONE_DAYS)[number],
+  );
+  if (milestoneIndex < 0) return null;
 
-  const sequenceNo = daysLeft === 2 ? 1 : 2;
+  const sequenceNo = milestoneIndex + 1;
 
   if (!lastSent) return sequenceNo;
   if (lastSent.sequenceNo >= TRIAL_ENDING_MAX_SENDS) return null;
   if (sequenceNo <= lastSent.sequenceNo) return null;
 
   return sequenceNo;
+}
+
+/** IST calendar days left for trial-ending copy (3, 2, or 1). */
+export function trialEndingDaysLeft(trialExpireIso: string, nowMs = Date.now()): number {
+  return calendarDaysRemainingIst(trialExpireIso, new Date(nowMs));
 }

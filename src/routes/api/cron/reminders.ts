@@ -10,10 +10,10 @@ import { runReminderSweep } from "@/notifications/reminderEmails";
  *   Header: x-cron-secret: <CRON_SECRET>
  *
  * Rules:
- * - Before free trial ends: emails on second-last day and last day
- * - After trial ends: up to 5 emails, 3 days apart
- * - After subscription ends: up to 5 emails, 3 days apart
- * - Before subscription ends: up to 5 emails, 3 days apart (12/9/6/3/0 days left)
+ * - Before free trial ends: emails at 3, 2, and 1 calendar days left
+ * - After trial ends: up to 5 win-back emails, every 2 days
+ * - After subscription ends: up to 5 win-back emails, every 2 days
+ * - Before subscription ends: warnings at 7, 3, 1, and 0 days left
  */
 export const Route = createFileRoute("/api/cron/reminders")({
   server: {

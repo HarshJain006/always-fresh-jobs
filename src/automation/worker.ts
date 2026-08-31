@@ -6,12 +6,13 @@
 import { runNaukriJob } from "./selenium/runNaukriJob";
 import { saveLog } from "./logs";
 import { toUserFacingActivityMessage } from "./activityMessage";
+import { sendCredentialFailureEmail } from "@/notifications/credentialFailureEmail";
 import { getUserAutomation, saveUserAutomation } from "@/database/userAutomation";
 import { decryptData, isEncryptedSecret } from "@/security/encryption";
 import { getResumePath, getResumeFileName } from "@/storage/storage";
 import type { PlatformId } from "@/database/schemas";
 import { getAuthoritativeAccess } from "@/security/accessControl";
-import { shouldWriteUserActivityLog } from "@/queue/jobErrors";
+import { shouldWriteUserActivityLog, isFatalCredentialError } from "@/queue/jobErrors";
 import { startTrialClockIfNeeded } from "@/database/users";
 
 export interface UserRunResult {
@@ -41,7 +42,15 @@ async function finish(
   const userMessage = toUserFacingActivityMessage(message, ok);
   if (writeLog && shouldWriteUserActivityLog(ok, message) && userMessage) {
     try {
-      await saveLog({ userId, platform, ok, message: userMessage });
+      const log = await saveLog({ userId, platform, ok, message: userMessage });
+      if (!ok && isFatalCredentialError(message)) {
+        void sendCredentialFailureEmail(userId, log.id, message).catch((err) => {
+          console.error(
+            `[worker] credential failure email failed for user=${userId}:`,
+            err instanceof Error ? err.message : err,
+          );
+        });
+      }
     } catch (err) {
       console.error(
         `[worker] activity log write failed for user=${userId}:`,
@@ -153,12 +162,20 @@ export async function runPlatformForUser(
     const userMessage = toUserFacingActivityMessage(result.message, result.ok);
     if (userMessage) {
       try {
-        await saveLog({
+        const log = await saveLog({
           userId,
           platform,
           ok: result.ok,
           message: userMessage,
         });
+        if (!result.ok && isFatalCredentialError(result.message)) {
+          void sendCredentialFailureEmail(userId, log.id, result.message).catch((err) => {
+            console.error(
+              `[worker] credential failure email failed for user=${userId}:`,
+              err instanceof Error ? err.message : err,
+            );
+          });
+        }
       } catch (err) {
         // Upload already succeeded/failed — never lose the job over a log write
         console.error(

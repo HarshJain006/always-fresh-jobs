@@ -30,7 +30,7 @@ In Supabase → SQL Editor, run:
 4. `supabase/migrations/005_security_lockdown.sql` ← **RLS lockdown**
 5. `supabase/migrations/006_subscription_plans.sql` ← **plans**
 6. `supabase/migrations/007_daily_job_once_per_day.sql` ← **no re-upload after daily success**
-7. `supabase/migrations/008_email_reminder_events.sql` ← **SMTP reminder tracking**
+7. `supabase/migrations/008_email_reminder_events.sql` ← **email reminder tracking**
 8. `supabase/migrations/009_trial_5_days_and_trial_ending.sql` ← **5-day trial + trial ending emails**
 9. `supabase/migrations/011_trial_starts_on_refresh.sql` ← **trial clock starts on Start daily refresh**
 
@@ -40,32 +40,45 @@ Confirm tables `automation_jobs`, `automation_logs`, `user_automation` exist.
 
 ## 2. Netlify (frontend)
 
-Already deployed. Keep these env vars set (including live Razorpay keys + SMTP keys).
+Already deployed. Keep these env vars set (including live Razorpay keys + Resend).
 
 Dashboard actions only enqueue / update state — Selenium never runs on Netlify.
 
-### SMTP env (Netlify)
+### Resend email env (Netlify)
 
 ```bash
-SMTP_HOST=smtp-relay.brevo.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=<brevo-smtp-login>
-SMTP_PASS=<brevo-smtp-key>
-SMTP_FROM_EMAIL=no-reply@dailyresume.in
-SMTP_FROM_NAME=DailyResume
+RESEND_API_KEY=re_xxxxxxxx
+RESEND_FROM_EMAIL=onboarding@resend.dev   # testing only — use no-reply@dailyresume.in after domain verify
+RESEND_FROM_NAME=DailyResume
+```
+
+Verify `dailyresume.in` in [Resend Domains](https://resend.com/domains), then switch `RESEND_FROM_EMAIL` to `no-reply@dailyresume.in`.
+
+Test locally or on Netlify:
+
+```bash
+npm run mail:test -- you@example.com
 ```
 
 Reminder behavior:
 - New accounts get a **pending 5-day free trial** — countdown starts when they press **Start daily refresh**.
-- **Before trial ends** (after clock started): emails on the **second-last day** and **last day** (2 sends).
+- **Before trial ends** (after clock started): emails at **3, 2, and 1** calendar days remaining.
 - Send confirmation email when subscription is purchased.
-- **Before subscription ends:** up to 5 emails, 3 days apart (12 / 9 / 6 / 3 / 0 days left).
-- **After trial ends:** up to 5 repurchase emails, 3 days apart.
-- **After subscription ends:** up to 5 repurchase emails, 3 days apart.
-- All sends are tracked in `email_reminder_events` (idempotent — no duplicates).
+- **Before subscription ends:** reminders at **7, 3, 1, and 0** days left.
+- **After trial ends:** up to 5 win-back emails, every **2 days**.
+- **After subscription ends:** up to 5 win-back emails, every **2 days**.
+- **Wrong Naukri password:** immediate email each time login fails (not sent on success). Queued if daily cap is reached.
+- **Daily cap:** max **95 emails per IST calendar day**; overflow is queued and sent the next day (priority order below).
+- All scheduled sends tracked in `email_reminder_events` (idempotent — no duplicates).
 
-Run migration `009_trial_5_days_and_trial_ending.sql` after `008_email_reminder_events.sql`.
+**Send priority** (when cap is tight):
+1. Wrong Naukri username/password
+2. Free trial ended (win-back)
+3. Subscription ending soon (renew)
+4. Trial ending soon, subscription expired win-back
+5. Purchase confirmation
+
+Run migrations `009`, `011`, `012`, and `013` in Supabase before enabling.
 
 ### Reminder cron (required — once per day)
 
