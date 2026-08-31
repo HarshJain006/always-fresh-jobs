@@ -29,6 +29,7 @@ import {
   reserveEmailSlot,
 } from "./emailDailyCap";
 import { deliverQueuedCredentialEmail } from "./credentialFailureEmail";
+import { deliverQueuedWelcomeThankYou } from "./welcomeBulkEmail";
 
 type ReminderType = MailCategory;
 
@@ -492,6 +493,13 @@ export async function processQueuedEmails(): Promise<number> {
 
     if (row.reminder_type === "naukri_credentials_failed") {
       const ok = await deliverQueuedCredentialEmail(row.user_id, row.context_key);
+      if (ok) sent++;
+      else releaseReservedEmailSlot();
+      continue;
+    }
+
+    if (row.reminder_type === "welcome_thank_you") {
+      const ok = await deliverQueuedWelcomeThankYou(row.user_id);
       if (ok) sent++;
       else releaseReservedEmailSlot();
       continue;

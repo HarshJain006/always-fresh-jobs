@@ -67,9 +67,9 @@ npm run mail:send -- list
 npm run mail:send -- welcome you@example.com
 npm run mail:send -- welcome you@example.com "Harsh"
 
-# Preview other transactional emails
-npm run mail:send -- credentials you@example.com "Harsh"
-npm run mail:send -- purchased you@example.com "Harsh" "1 Month" "15 Mar 2026"
+# Thank-you to ALL active users (fetches name + email from Supabase)
+npm run mail:send -- welcome-all --dry-run    # preview counts only
+npm run mail:send -- welcome-all --confirm      # send for real (idempotent — skips users who already got it)
 ```
 
 Reminder behavior:
@@ -90,7 +90,7 @@ Reminder behavior:
 4. Trial ending soon, subscription expired win-back
 5. Purchase confirmation
 
-Run migrations `009`, `011`, `012`, and `013` in Supabase before enabling.
+Run migrations `009`, `011`, `012`, `013`, and `014` in Supabase before enabling.
 
 ### Reminder cron (required — once per day)
 

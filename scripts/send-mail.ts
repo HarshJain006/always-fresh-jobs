@@ -6,8 +6,8 @@
  *   npm run mail:send -- test you@example.com
  *   npm run mail:send -- welcome you@example.com
  *   npm run mail:send -- welcome you@example.com "Harsh"
- *   npm run mail:send -- credentials you@example.com "Harsh"
- *   npm run mail:send -- purchased you@example.com "Harsh" "1 Month" "15 Mar 2026"
+ *   npm run mail:send -- welcome-all --dry-run
+ *   npm run mail:send -- welcome-all --confirm
  */
 import "./load-env";
 import {
@@ -17,6 +17,7 @@ import {
   welcomeThankYouEmail,
 } from "../src/notifications/emailTemplates";
 import { isResendConfigured, sendResendMail } from "../src/notifications/resendMailer";
+import { sendWelcomeThankYouToAllUsers } from "../src/notifications/welcomeBulkEmail";
 
 type MailKind = "test" | "welcome" | "credentials" | "purchased" | "trial-ending";
 
@@ -30,7 +31,7 @@ const KINDS: Record<
     minArgs: 1,
   },
   welcome: {
-    label: "Thank-you / welcome after signup",
+    label: "Thank-you / welcome to one address",
     usage: 'npm run mail:send -- welcome you@example.com ["Name"]',
     minArgs: 1,
   },
@@ -56,16 +57,21 @@ function printHelp(): void {
   console.log(`
 DailyResume manual email sender (Resend)
 
-Requires RESEND_API_KEY and RESEND_FROM_EMAIL in .env
+Requires RESEND_API_KEY, RESEND_FROM_EMAIL, and SUPABASE_SERVICE_ROLE_KEY in .env
 
-Commands:
+Single-recipient commands:
 `);
   for (const [kind, info] of Object.entries(KINDS)) {
     console.log(`  ${kind.padEnd(14)} ${info.label}`);
     console.log(`  ${"".padEnd(14)} ${info.usage}`);
     console.log("");
   }
-  console.log(`  list           Show this help`);
+  console.log(`Bulk commands (fetch users from Supabase):
+  welcome-all    Thank-you to all active users (once per user, idempotent)
+                 npm run mail:send -- welcome-all --dry-run
+                 npm run mail:send -- welcome-all --confirm
+
+  list           Show this help`);
 }
 
 function buildMessage(
@@ -98,6 +104,44 @@ function buildMessage(
   }
 }
 
+async function runWelcomeAll(args: string[]): Promise<void> {
+  const dryRun = args.includes("--dry-run");
+  const confirm = args.includes("--confirm");
+
+  if (!dryRun && !confirm) {
+    console.error(
+      "Bulk welcome email requires --dry-run (preview) or --confirm (send).\n\n" +
+        "  npm run mail:send -- welcome-all --dry-run\n" +
+        "  npm run mail:send -- welcome-all --confirm",
+    );
+    process.exit(1);
+  }
+
+  console.log("Mode:", dryRun ? "dry-run (no emails sent)" : "send");
+  console.log("Resend configured:", isResendConfigured());
+  console.log("From:", process.env.RESEND_FROM_EMAIL || "(missing)");
+
+  const result = await sendWelcomeThankYouToAllUsers({ dryRun });
+
+  console.log("\nResults:");
+  console.log(`  Active users in Supabase: ${result.total}`);
+  if (dryRun) {
+    console.log(`  Would send now:         ${result.sent}`);
+    console.log(`  Already sent / queued:  ${result.skipped}`);
+    console.log("\nRun with --confirm to send for real.");
+  } else {
+    console.log(`  Sent:                   ${result.sent}`);
+    console.log(`  Queued (daily cap):     ${result.queued}`);
+    console.log(`  Skipped (already done): ${result.skipped}`);
+    console.log(`  Failed:                 ${result.failed}`);
+    if (result.queued > 0) {
+      console.log(
+        "\nSome emails were queued due to the 95/day cap. Re-run tomorrow or trigger /api/cron/reminders.",
+      );
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const kind = (process.argv[2] || "").trim().toLowerCase();
   const rest = process.argv.slice(3);
@@ -105,6 +149,11 @@ async function main(): Promise<void> {
   if (!kind || kind === "list" || kind === "help" || kind === "-h" || kind === "--help") {
     printHelp();
     process.exit(kind ? 0 : 1);
+  }
+
+  if (kind === "welcome-all") {
+    await runWelcomeAll(rest);
+    return;
   }
 
   if (!(kind in KINDS)) {
