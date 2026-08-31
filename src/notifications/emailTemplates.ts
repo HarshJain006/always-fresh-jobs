@@ -311,6 +311,36 @@ export function subscriptionPurchasedEmail(
   };
 }
 
+/** Sent after signup — thanks the user and explains how to get started. */
+export function welcomeThankYouEmail(name: string): { subject: string; html: string; text: string } {
+  const dash = dashboardUrl();
+
+  const { html, text } = renderBrandedEmail({
+    preview: "Welcome to DailyResume — your Naukri profile stays fresh, automatically",
+    headline: "Thank you for choosing DailyResume",
+    greeting: name,
+    badge: "Welcome aboard",
+    badgeTone: "success",
+    paragraphs: [
+      "We're glad you're here. DailyResume keeps your Naukri resume updated every morning before 8 AM IST — so recruiters see an active, recently refreshed profile without you lifting a finger.",
+      "Getting started takes just a few minutes: upload your resume, connect your Naukri credentials, and tap Start on your dashboard. Your 5-day free trial begins when automation runs for the first time.",
+      "If you have questions at any point, reply to this email or visit your dashboard — we're here to help you stay visible in your job search.",
+    ],
+    ctaLabel: "Set up my dashboard",
+    ctaUrl: dash,
+    secondaryLabel: "See how it works",
+    secondaryUrl: pricingUrl(),
+    footerNote:
+      "You're receiving this because you created an account at dailyresume.in.",
+  });
+
+  return {
+    subject: "Welcome to DailyResume — thank you for joining us",
+    html,
+    text,
+  };
+}
+
 export function credentialFailureEmail(name: string): { subject: string; html: string; text: string } {
   const dash = dashboardUrl();
 

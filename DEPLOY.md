@@ -54,10 +54,22 @@ RESEND_FROM_NAME=DailyResume
 
 Verify `dailyresume.in` in [Resend Domains](https://resend.com/domains), then switch `RESEND_FROM_EMAIL` to `no-reply@dailyresume.in`.
 
-Test locally or on Netlify:
+Test locally (requires `RESEND_API_KEY` + `RESEND_FROM_EMAIL` in `.env`):
 
 ```bash
+# Quick connectivity check
 npm run mail:test -- you@example.com
+
+# Branded templates — list all options
+npm run mail:send -- list
+
+# Thank-you email (professional welcome after signup)
+npm run mail:send -- welcome you@example.com
+npm run mail:send -- welcome you@example.com "Harsh"
+
+# Preview other transactional emails
+npm run mail:send -- credentials you@example.com "Harsh"
+npm run mail:send -- purchased you@example.com "Harsh" "1 Month" "15 Mar 2026"
 ```
 
 Reminder behavior:

@@ -11,6 +11,7 @@ async function main() {
   const to = (process.argv[2] || "").trim();
   if (!to || !to.includes("@")) {
     console.error("Usage: npm run mail:test -- you@example.com");
+    console.error("Tip: use npm run mail:send -- welcome you@example.com for branded templates.");
     process.exit(1);
   }
 
