@@ -30,6 +30,7 @@ import {
 } from "./emailDailyCap";
 import { deliverQueuedCredentialEmail } from "./credentialFailureEmail";
 import { deliverQueuedWelcomeThankYou } from "./welcomeBulkEmail";
+import { deliverQueuedExpiredReengage } from "./expiredReengageBulkEmail";
 
 type ReminderType = MailCategory;
 
@@ -500,6 +501,13 @@ export async function processQueuedEmails(): Promise<number> {
 
     if (row.reminder_type === "welcome_thank_you") {
       const ok = await deliverQueuedWelcomeThankYou(row.user_id);
+      if (ok) sent++;
+      else releaseReservedEmailSlot();
+      continue;
+    }
+
+    if (row.reminder_type === "expired_access_reengage") {
+      const ok = await deliverQueuedExpiredReengage(row.user_id);
       if (ok) sent++;
       else releaseReservedEmailSlot();
       continue;

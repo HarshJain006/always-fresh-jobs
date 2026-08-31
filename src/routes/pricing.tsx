@@ -66,7 +66,7 @@ function Pricing() {
           email: checkout.userEmail,
           name: checkout.userName,
         },
-        theme: { color: "#0f766e" },
+        theme: { color: "#4F46E5" },
       });
 
       const result = await verifyAndActivatePaidPlan({

@@ -48,7 +48,7 @@ Dashboard actions only enqueue / update state — Selenium never runs on Netlify
 
 ```bash
 RESEND_API_KEY=re_xxxxxxxx
-RESEND_FROM_EMAIL=onboarding@resend.dev   # testing only — use no-reply@dailyresume.in after domain verify
+RESEND_FROM_EMAIL=noreply@dailyresume.in  # testing only — use no-reply@dailyresume.in after domain verify
 RESEND_FROM_NAME=DailyResume
 ```
 
@@ -70,6 +70,14 @@ npm run mail:send -- welcome you@example.com "Harsh"
 # Thank-you to ALL active users (fetches name + email from Supabase)
 npm run mail:send -- welcome-all --dry-run    # preview counts only
 npm run mail:send -- welcome-all --confirm      # send for real (idempotent — skips users who already got it)
+
+# Re-engage users whose trial OR subscription has ended (positive upsell)
+npm run mail:send -- expired-all --dry-run
+npm run mail:send -- expired-all --confirm
+
+# Preview expired upsell to one address
+npm run mail:send -- expired-upsell you@example.com "Harsh" trial
+npm run mail:send -- expired-upsell you@example.com "Harsh" subscription
 ```
 
 Reminder behavior:
@@ -90,7 +98,7 @@ Reminder behavior:
 4. Trial ending soon, subscription expired win-back
 5. Purchase confirmation
 
-Run migrations `009`, `011`, `012`, `013`, and `014` in Supabase before enabling.
+Run migrations `009`, `011`, `012`, `013`, `014`, and `015` in Supabase before enabling.
 
 ### Reminder cron (required — once per day)
 

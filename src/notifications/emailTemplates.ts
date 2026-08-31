@@ -5,16 +5,17 @@
 
 const BRAND = {
   name: "DailyResume",
-  primary: "#0f766e",
-  primaryDark: "#0d5f58",
-  accent: "#14b8a6",
-  bg: "#f0fdfa",
+  /** Matches site --gradient-primary (oklch 265 → 220) */
+  primary: "#4F46E5",
+  primaryDark: "#3730A3",
+  accent: "#3B82F6",
+  bg: "#F4F6FB",
   card: "#ffffff",
-  text: "#0f172a",
-  muted: "#64748b",
-  border: "#e2e8f0",
-  warning: "#b45309",
-  warningBg: "#fffbeb",
+  text: "#0F172A",
+  muted: "#64748B",
+  border: "#E2E8F0",
+  warning: "#B45309",
+  warningBg: "#FFFBEB",
 } as const;
 
 export function appBaseUrl(): string {
@@ -56,8 +57,8 @@ type LayoutInput = {
 
 function badgeColor(tone: LayoutInput["badgeTone"]): { bg: string; fg: string } {
   if (tone === "warning") return { bg: BRAND.warningBg, fg: BRAND.warning };
-  if (tone === "success") return { bg: "#ecfdf5", fg: BRAND.primary };
-  return { bg: "#f0fdfa", fg: BRAND.primary };
+  if (tone === "success") return { bg: "#EEF2FF", fg: BRAND.primary };
+  return { bg: "#EEF2FF", fg: BRAND.primary };
 }
 
 export function renderBrandedEmail(input: LayoutInput): { html: string; text: string } {
@@ -92,9 +93,9 @@ export function renderBrandedEmail(input: LayoutInput): { html: string; text: st
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:${BRAND.bg};padding:32px 16px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:${BRAND.card};border-radius:16px;border:1px solid ${BRAND.border};overflow:hidden;box-shadow:0 4px 24px rgba(15,118,110,0.08);">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:${BRAND.card};border-radius:16px;border:1px solid ${BRAND.border};overflow:hidden;box-shadow:0 4px 24px rgba(79,70,229,0.10);">
           <tr>
-            <td style="background:linear-gradient(135deg,${BRAND.primary} 0%,${BRAND.primaryDark} 100%);padding:28px 32px;">
+            <td style="background:linear-gradient(135deg,${BRAND.primary} 0%,${BRAND.accent} 100%);padding:28px 32px;">
               <div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">⚡ DailyResume</div>
               <div style="margin-top:6px;font-size:13px;color:rgba(255,255,255,0.85);">Keep your Naukri resume fresh — automatically</div>
             </td>
@@ -109,7 +110,7 @@ export function renderBrandedEmail(input: LayoutInput): { html: string; text: st
           </tr>
           <tr>
             <td style="padding:8px 32px 32px;">
-              <a href="${escapeHtml(input.ctaUrl)}" style="display:inline-block;padding:14px 28px;background:${BRAND.primary};color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;border-radius:10px;box-shadow:0 4px 14px rgba(15,118,110,0.35);">${escapeHtml(input.ctaLabel)}</a>
+              <a href="${escapeHtml(input.ctaUrl)}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,${BRAND.primary},${BRAND.accent});color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;border-radius:10px;box-shadow:0 4px 14px rgba(79,70,229,0.35);">${escapeHtml(input.ctaLabel)}</a>
               ${secondaryCta}
             </td>
           </tr>
@@ -311,6 +312,57 @@ export function subscriptionPurchasedEmail(
   };
 }
 
+/** Positive re-engagement for users whose trial or subscription has ended (manual bulk campaign). */
+export function expiredAccessReengageEmail(
+  name: string,
+  kind: "trial" | "subscription",
+): { subject: string; html: string; text: string } {
+  const price = pricingUrl();
+  const dash = dashboardUrl();
+
+  const headline =
+    kind === "trial"
+      ? "You already know how effortless this feels"
+      : "Your profile deserves to stay in the spotlight";
+
+  const paragraphs =
+    kind === "trial"
+      ? [
+          "You tried DailyResume and experienced how easy it is to keep your Naukri resume fresh — without logging in every day. We'd love to help you continue that momentum.",
+          "On Naukri, recruiters often notice profiles updated in the last few days first. A daily refresh before 8 AM IST keeps you in that active layer while you focus on applications and interviews.",
+          "Your resume and Naukri setup are still saved. Choose a plan, tap Start, and you're back in under a minute — many job seekers see stronger profile visibility when they stay consistent.",
+        ]
+      : [
+          "Your DailyResume subscription has ended, but the hardest part — setting everything up — is already done. Your resume and Naukri credentials are still saved and ready to go.",
+          "Staying visible on Naukri is a daily game. Profiles refreshed every morning signal to recruiters that you're actively looking — and that can mean more views, more calls, and more opportunities.",
+          "Renewing takes less than a minute. Pick a plan that fits your job search and let DailyResume handle the daily refresh again — so you never fall off recruiters' radar.",
+        ];
+
+  const { html, text } = renderBrandedEmail({
+    preview: "Get back to daily Naukri resume refreshes — your setup is already saved",
+    headline,
+    greeting: name,
+    badge: kind === "trial" ? "Continue your momentum" : "Welcome back",
+    badgeTone: "success",
+    paragraphs,
+    ctaLabel: kind === "trial" ? "View plans & get started" : "Renew & stay visible",
+    ctaUrl: price,
+    secondaryLabel: "Open dashboard",
+    secondaryUrl: dash,
+    footerNote:
+      "You're receiving this because your DailyResume trial or subscription has ended.",
+  });
+
+  return {
+    subject:
+      kind === "trial"
+        ? "Keep your Naukri profile active — you're one step away"
+        : "Ready to get back on top of recruiter searches?",
+    html,
+    text,
+  };
+}
+
 /** Sent after signup — thanks the user and explains how to get started. */
 export function welcomeThankYouEmail(name: string): { subject: string; html: string; text: string } {
   const dash = dashboardUrl();
@@ -324,7 +376,7 @@ export function welcomeThankYouEmail(name: string): { subject: string; html: str
     paragraphs: [
       "We're glad you're here. DailyResume keeps your Naukri resume updated every morning before 8 AM IST — so recruiters see an active, recently refreshed profile without you lifting a finger.",
       "Getting started takes just a few minutes: upload your resume, connect your Naukri credentials, and tap Start on your dashboard. Your 5-day free trial begins when automation runs for the first time.",
-      "If you have questions at any point, reply to this email or visit your dashboard — we're here to help you stay visible in your job search.",
+      "Visit your dashboard anytime to manage your setup and track daily refresh activity.",
     ],
     ctaLabel: "Set up my dashboard",
     ctaUrl: dash,

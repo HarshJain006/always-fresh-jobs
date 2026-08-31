@@ -22,7 +22,8 @@ export type MailCategory =
   | "trial_ending"
   | "subscription_expired_repurchase"
   | "subscription_purchased"
-  | "welcome_thank_you";
+  | "welcome_thank_you"
+  | "expired_access_reengage";
 
 /** Lower number = higher priority. */
 export const EMAIL_SEND_PRIORITY: Record<MailCategory, number> = {
@@ -33,6 +34,7 @@ export const EMAIL_SEND_PRIORITY: Record<MailCategory, number> = {
   subscription_expired_repurchase: 4,
   subscription_purchased: 5,
   welcome_thank_you: 6,
+  expired_access_reengage: 6,
 };
 
 function clampInt(value: number, min: number, max: number, fallback: number): number {

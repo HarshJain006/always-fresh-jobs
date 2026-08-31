@@ -8,18 +8,22 @@
  *   npm run mail:send -- welcome you@example.com "Harsh"
  *   npm run mail:send -- welcome-all --dry-run
  *   npm run mail:send -- welcome-all --confirm
+ *   npm run mail:send -- expired-all --dry-run
+ *   npm run mail:send -- expired-all --confirm
  */
 import "./load-env";
 import {
   credentialFailureEmail,
+  expiredAccessReengageEmail,
   subscriptionPurchasedEmail,
   trialEndingEmail,
   welcomeThankYouEmail,
 } from "../src/notifications/emailTemplates";
 import { isResendConfigured, sendResendMail } from "../src/notifications/resendMailer";
+import { sendExpiredReengageToAllUsers } from "../src/notifications/expiredReengageBulkEmail";
 import { sendWelcomeThankYouToAllUsers } from "../src/notifications/welcomeBulkEmail";
 
-type MailKind = "test" | "welcome" | "credentials" | "purchased" | "trial-ending";
+type MailKind = "test" | "welcome" | "credentials" | "purchased" | "trial-ending" | "expired-upsell";
 
 const KINDS: Record<
   MailKind,
@@ -51,6 +55,12 @@ const KINDS: Record<
     usage: 'npm run mail:send -- trial-ending you@example.com ["Name"]',
     minArgs: 1,
   },
+  "expired-upsell": {
+    label: "Expired trial/subscription re-engagement (preview)",
+    usage:
+      'npm run mail:send -- expired-upsell you@example.com ["Name"] [trial|subscription]',
+    minArgs: 1,
+  },
 };
 
 function printHelp(): void {
@@ -70,6 +80,10 @@ Single-recipient commands:
   welcome-all    Thank-you to all active users (once per user, idempotent)
                  npm run mail:send -- welcome-all --dry-run
                  npm run mail:send -- welcome-all --confirm
+
+  expired-all    Positive upsell to users whose trial or subscription ended
+                 npm run mail:send -- expired-all --dry-run
+                 npm run mail:send -- expired-all --confirm
 
   list           Show this help`);
 }
@@ -99,6 +113,11 @@ function buildMessage(
     }
     case "trial-ending":
       return trialEndingEmail(name, 1, 3, 3);
+    case "expired-upsell": {
+      const variant = (args[2] || "trial").trim().toLowerCase();
+      const kind = variant === "subscription" ? "subscription" : "trial";
+      return expiredAccessReengageEmail(name, kind);
+    }
     default:
       throw new Error(`Unknown kind: ${kind}`);
   }
@@ -142,6 +161,46 @@ async function runWelcomeAll(args: string[]): Promise<void> {
   }
 }
 
+async function runExpiredAll(args: string[]): Promise<void> {
+  const dryRun = args.includes("--dry-run");
+  const confirm = args.includes("--confirm");
+
+  if (!dryRun && !confirm) {
+    console.error(
+      "Bulk expired-user email requires --dry-run (preview) or --confirm (send).\n\n" +
+        "  npm run mail:send -- expired-all --dry-run\n" +
+        "  npm run mail:send -- expired-all --confirm",
+    );
+    process.exit(1);
+  }
+
+  console.log("Mode:", dryRun ? "dry-run (no emails sent)" : "send");
+  console.log("Resend configured:", isResendConfigured());
+  console.log("From:", process.env.RESEND_FROM_EMAIL || "(missing)");
+
+  const result = await sendExpiredReengageToAllUsers({ dryRun });
+
+  console.log("\nResults:");
+  console.log(`  Expired users (eligible): ${result.total}`);
+  console.log(`    Trial ended:            ${result.trial}`);
+  console.log(`    Subscription ended:     ${result.subscription}`);
+  if (dryRun) {
+    console.log(`  Would send now:           ${result.sent}`);
+    console.log(`  Already sent / queued:  ${result.skipped}`);
+    console.log("\nRun with --confirm to send for real.");
+  } else {
+    console.log(`  Sent:                   ${result.sent}`);
+    console.log(`  Queued (daily cap):     ${result.queued}`);
+    console.log(`  Skipped (already done): ${result.skipped}`);
+    console.log(`  Failed:                 ${result.failed}`);
+    if (result.queued > 0) {
+      console.log(
+        "\nSome emails were queued due to the 95/day cap. Re-run tomorrow or trigger /api/cron/reminders.",
+      );
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const kind = (process.argv[2] || "").trim().toLowerCase();
   const rest = process.argv.slice(3);
@@ -153,6 +212,11 @@ async function main(): Promise<void> {
 
   if (kind === "welcome-all") {
     await runWelcomeAll(rest);
+    return;
+  }
+
+  if (kind === "expired-all") {
+    await runExpiredAll(rest);
     return;
   }
 
