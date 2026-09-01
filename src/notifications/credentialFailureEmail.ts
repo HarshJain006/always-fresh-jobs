@@ -4,7 +4,7 @@
  */
 
 import { findUserById } from "@/database/users";
-import { isFatalCredentialError } from "@/queue/jobErrors";
+import { isCredentialFailureMessage } from "@/queue/jobErrors";
 import { getSupabaseServer, isSupabaseServerConfigured } from "@/lib/supabase";
 import { credentialFailureEmail } from "./emailTemplates";
 import {
@@ -28,7 +28,7 @@ export async function sendCredentialFailureEmail(
   logId: string,
   rawMessage: string,
 ): Promise<void> {
-  if (!isFatalCredentialError(rawMessage)) return;
+  if (!isCredentialFailureMessage(rawMessage)) return;
   if (!isResendConfigured() || !isSupabaseServerConfigured()) return;
 
   const user = await findUserById(userId);
@@ -43,9 +43,9 @@ export async function sendCredentialFailureEmail(
     .maybeSingle();
 
   if (existing.data?.status === "sent") return;
-  if (existing.data?.status === "queued") return;
-
-  if (existing.data?.status === "processing") {
+  if (existing.data?.status === "queued") {
+    // Allow delivery of a previously queued credential email.
+  } else if (existing.data?.status === "processing") {
     const updatedAt = new Date(String(existing.data.updated_at)).getTime();
     if (Number.isFinite(updatedAt) && Date.now() - updatedAt < STALE_PROCESSING_MS) return;
   }
@@ -88,6 +88,8 @@ export async function deliverQueuedCredentialEmail(
 
   const name = user.name?.trim() || "there";
   const { subject, html, text } = credentialFailureEmail(name);
+
+  await setCredentialFailureRowStatus(userId, logId, "processing");
 
   try {
     const ok = await sendResendMail({ to: user.email, subject, html, text });

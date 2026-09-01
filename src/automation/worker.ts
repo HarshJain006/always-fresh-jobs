@@ -6,16 +6,13 @@
 import { runNaukriJob } from "./selenium/runNaukriJob";
 import { saveLog } from "./logs";
 import { toUserFacingActivityMessage } from "./activityMessage";
-import {
-  queueCredentialFailureEmail,
-  requestMailQueueFlush,
-} from "@/notifications/credentialFailureQueue";
+import { notifyCredentialFailure } from "@/notifications/credentialFailureNotify";
 import { getUserAutomation, saveUserAutomation } from "@/database/userAutomation";
 import { decryptData, isEncryptedSecret } from "@/security/encryption";
 import { getResumePath, getResumeFileName } from "@/storage/storage";
 import type { PlatformId } from "@/database/schemas";
 import { getAuthoritativeAccess } from "@/security/accessControl";
-import { shouldWriteUserActivityLog, isFatalCredentialError } from "@/queue/jobErrors";
+import { shouldWriteUserActivityLog, isCredentialFailureMessage } from "@/queue/jobErrors";
 import { startTrialClockIfNeeded } from "@/database/users";
 
 export interface UserRunResult {
@@ -46,17 +43,13 @@ async function finish(
   if (writeLog && shouldWriteUserActivityLog(ok, message) && userMessage) {
     try {
       const log = await saveLog({ userId, platform, ok, message: userMessage });
-      if (!ok && isFatalCredentialError(message)) {
-        void queueCredentialFailureEmail(userId, log.id, message)
-          .then((shouldFlush) => {
-            if (shouldFlush) void requestMailQueueFlush();
-          })
-          .catch((err) => {
-            console.error(
-              `[worker] credential failure email queue failed for user=${userId}:`,
-              err instanceof Error ? err.message : err,
-            );
-          });
+      if (!ok && isCredentialFailureMessage(message, userMessage)) {
+        await notifyCredentialFailure(userId, log.id, message, userMessage).catch((err) => {
+          console.error(
+            `[worker] credential failure email failed for user=${userId}:`,
+            err instanceof Error ? err.message : err,
+          );
+        });
       }
     } catch (err) {
       console.error(
@@ -175,17 +168,18 @@ export async function runPlatformForUser(
           ok: result.ok,
           message: userMessage,
         });
-        if (!result.ok && isFatalCredentialError(result.message)) {
-          void queueCredentialFailureEmail(userId, log.id, result.message)
-            .then((shouldFlush) => {
-              if (shouldFlush) void requestMailQueueFlush();
-            })
-            .catch((err: unknown) => {
-              console.error(
-                `[worker] credential failure email queue failed for user=${userId}:`,
-                err instanceof Error ? err.message : err,
-              );
-            });
+        if (!result.ok && isCredentialFailureMessage(result.message, userMessage)) {
+          await notifyCredentialFailure(
+            userId,
+            log.id,
+            result.message,
+            userMessage,
+          ).catch((err: unknown) => {
+            console.error(
+              `[worker] credential failure email failed for user=${userId}:`,
+              err instanceof Error ? err.message : err,
+            );
+          });
         }
       } catch (err) {
         // Upload already succeeded/failed — never lose the job over a log write

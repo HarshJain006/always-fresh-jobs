@@ -4,7 +4,7 @@
  */
 
 import { findUserById } from "@/database/users";
-import { isFatalCredentialError } from "@/queue/jobErrors";
+import { isCredentialFailureMessage } from "@/queue/jobErrors";
 import { getSupabaseServer, isSupabaseServerConfigured } from "@/lib/supabase";
 
 export const CREDENTIAL_FAILURE_REMINDER_TYPE = "naukri_credentials_failed" as const;
@@ -46,13 +46,16 @@ export async function ensureCredentialFailureRow(
   if (existing.data?.status === "sent") return;
 
   if (!existing.data) {
-    await getSupabaseServer().from("email_reminder_events").insert({
+    const { error } = await getSupabaseServer().from("email_reminder_events").insert({
       user_id: userId,
       reminder_type: CREDENTIAL_FAILURE_REMINDER_TYPE,
       sequence_no: 1,
       context_key: logId,
       status,
     });
+    if (error) {
+      throw new Error(`ensureCredentialFailureRow insert failed: ${error.message}`);
+    }
     return;
   }
 
@@ -73,7 +76,7 @@ export async function queueCredentialFailureEmail(
   logId: string,
   rawMessage: string,
 ): Promise<boolean> {
-  if (!isFatalCredentialError(rawMessage)) return false;
+  if (!isCredentialFailureMessage(rawMessage)) return false;
   if (!isSupabaseServerConfigured()) return false;
 
   const user = await findUserById(userId);
@@ -103,13 +106,13 @@ export async function queueCredentialFailureEmail(
   return true;
 }
 
-/** Ask Netlify to drain queued transactional emails (fire-and-forget). */
-export async function requestMailQueueFlush(): Promise<void> {
+/** Ask Netlify to drain queued transactional emails. Returns true when HTTP 2xx. */
+export async function requestMailQueueFlush(): Promise<boolean> {
   const secret = process.env.CRON_SECRET?.trim();
   const base = (process.env.VITE_APP_URL || "https://dailyresume.in").replace(/\/$/, "");
   if (!secret) {
     console.warn("[mail] CRON_SECRET unset; cannot flush mail queue from worker.");
-    return;
+    return false;
   }
 
   try {
@@ -121,11 +124,16 @@ export async function requestMailQueueFlush(): Promise<void> {
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.warn(`[mail] queue flush returned ${res.status}: ${body.slice(0, 200)}`);
+      return false;
     }
+    const payload = (await res.json().catch(() => null)) as { sent?: number } | null;
+    console.info(`[mail] queue flush ok sent=${payload?.sent ?? "?"}`);
+    return true;
   } catch (err) {
     console.warn(
       "[mail] queue flush webhook failed:",
       err instanceof Error ? err.message : err,
     );
+    return false;
   }
 }

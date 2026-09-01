@@ -282,13 +282,39 @@ npm run mail:send -- purchased your@gmail.com "Name" "3 Months" "30 Jun 2026"
 
 | Problem | Fix |
 |---------|-----|
-| `Resend not configured` | Set `RESEND_API_KEY` + `RESEND_FROM_EMAIL` in `.env` |
+| Wrong-password email not received | See **Wrong-password checklist** below |
+| `Resend not configured` | Set `RESEND_API_KEY` + `RESEND_FROM_EMAIL` in `.env` (Netlify) |
 | Bulk command fails on Supabase | Set `SUPABASE_SERVICE_ROLE_KEY` in `.env` |
 | Email not received | Check spam; verify domain in [Resend Domains](https://resend.com/domains) |
 | `welcome-all` / `expired-all` needs flag | Always pass `--dry-run` or `--confirm` |
-| Bulk stopped at 95 | Normal — re-run tomorrow or trigger cron |
-| Migration error on bulk send | Run migrations `014` and `015` in Supabase |
+| Bulk stopped at 95 | Normal — re-run tomorrow or run `npm run mail:flush-queue` |
+| Migration error on bulk send | Run migrations `012`–`015` in Supabase |
 | Pi worker mail crash | Pi does not need `resend` — run `npm ci` after pull; see `DEPLOY.md` |
+
+### Wrong-password email checklist
+
+Pi queues the email → Netlify sends it. All of these must be true:
+
+1. **Netlify** has `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `CRON_SECRET`
+2. **Pi `.env`** has the **same** `CRON_SECRET` + `VITE_APP_URL=https://dailyresume.in`
+3. Migration **`012_credential_failure_email.sql`** ran in Supabase
+4. Latest code deployed to Netlify (`/api/cron/mail-queue` endpoint exists)
+5. Pi worker restarted after `git pull`
+
+**Recover stuck queued emails manually:**
+
+```bash
+npm run mail:flush-queue
+```
+
+Or from curl:
+
+```bash
+curl -X POST "https://dailyresume.in/api/cron/mail-queue" \
+  -H "x-cron-secret: YOUR_CRON_SECRET"
+```
+
+Check Supabase `email_reminder_events` for rows with `reminder_type = naukri_credentials_failed` and `status = queued`.
 
 ---
 
@@ -315,4 +341,7 @@ npm run mail:send -- welcome-all --dry-run
 npm run mail:send -- welcome-all --confirm
 npm run mail:send -- expired-all --dry-run
 npm run mail:send -- expired-all --confirm
+
+# Drain queued emails (wrong-password stuck, cap overflow)
+npm run mail:flush-queue
 ```

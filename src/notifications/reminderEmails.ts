@@ -469,24 +469,61 @@ async function collectCandidatesForUser(user: User, nowMs: number): Promise<Emai
 }
 
 /** Drain queued emails from prior days (or today's overflow), highest priority first. */
-export async function processQueuedEmails(): Promise<number> {
-  const { data, error } = await getSupabaseServer()
-    .from("email_reminder_events")
-    .select("*")
-    .eq("status", "queued")
-    .order("created_at", { ascending: true })
-    .limit(1000);
+async function loadPendingMailQueueRows(): Promise<ReminderRow[]> {
+  const staleBefore = new Date(Date.now() - STALE_PROCESSING_MS).toISOString();
 
-  if (error) {
-    console.error("[mail] load queued failed:", error.message);
-    return 0;
+  const [queuedRes, staleRes, failedCredRes] = await Promise.all([
+    getSupabaseServer()
+      .from("email_reminder_events")
+      .select("*")
+      .eq("status", "queued")
+      .order("created_at", { ascending: true })
+      .limit(1000),
+    getSupabaseServer()
+      .from("email_reminder_events")
+      .select("*")
+      .eq("status", "processing")
+      .lt("updated_at", staleBefore)
+      .order("created_at", { ascending: true })
+      .limit(200),
+    getSupabaseServer()
+      .from("email_reminder_events")
+      .select("*")
+      .eq("status", "failed")
+      .eq("reminder_type", "naukri_credentials_failed")
+      .order("created_at", { ascending: true })
+      .limit(200),
+  ]);
+
+  if (queuedRes.error) {
+    console.error("[mail] load queued failed:", queuedRes.error.message);
+  }
+  if (staleRes.error) {
+    console.error("[mail] load stale processing failed:", staleRes.error.message);
+  }
+  if (failedCredRes.error) {
+    console.error("[mail] load failed credential rows failed:", failedCredRes.error.message);
   }
 
-  const rows = ((data ?? []) as ReminderRow[]).sort((a, b) => {
+  const byId = new Map<string, ReminderRow>();
+  for (const row of [
+    ...((queuedRes.data ?? []) as ReminderRow[]),
+    ...((staleRes.data ?? []) as ReminderRow[]),
+    ...((failedCredRes.data ?? []) as ReminderRow[]),
+  ]) {
+    byId.set(row.id, row);
+  }
+
+  return [...byId.values()].sort((a, b) => {
     const p = compareEmailPriority(a.reminder_type, b.reminder_type);
     if (p !== 0) return p;
     return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
   });
+}
+
+export async function processQueuedEmails(): Promise<number> {
+  const rows = await loadPendingMailQueueRows();
+  if (rows.length === 0) return 0;
 
   let sent = 0;
   for (const row of rows) {

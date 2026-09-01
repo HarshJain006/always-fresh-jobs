@@ -17,6 +17,7 @@ import "./load-env";
 import cron from "node-cron";
 import * as os from "node:os";
 import { claimNextJob, completeJob, heartbeatJob, reclaimStaleJobs, summarizeDailyJobsForDate, applyJobFailurePolicy } from "../src/queue/jobs";
+import { requestMailQueueFlush } from "../src/notifications/credentialFailureQueue";
 import { isTransientFetchError, withRetry } from "../src/lib/retry";
 import {
   enqueueDailyJobsForEligibleUsers,
@@ -37,6 +38,7 @@ const enqueueOnly = process.argv.includes("--enqueue-daily");
 const POLL_MS = Number(process.env.QUEUE_POLL_MS || 5000);
 const LEASE_SECONDS = Number(process.env.QUEUE_LEASE_SECONDS || 900);
 const RECLAIM_MS = Number(process.env.QUEUE_RECLAIM_MS || 60_000);
+const MAIL_FLUSH_MS = Math.max(60_000, Number(process.env.QUEUE_MAIL_FLUSH_MS || 180_000));
 const CONCURRENCY = getQueueConcurrency();
 const BASE_WORKER_ID = process.env.WORKER_ID || `rpi-${os.hostname()}-${process.pid}`;
 
@@ -380,6 +382,19 @@ async function slotLoop(slot: number) {
   }
 }
 
+async function safeMailQueueFlush(reason: string): Promise<void> {
+  if (!process.env.CRON_SECRET?.trim()) return;
+  try {
+    const ok = await requestMailQueueFlush();
+    if (ok) console.info(`[mail] queue flush ok (${reason})`);
+  } catch (err) {
+    console.warn(
+      `[mail] queue flush failed (${reason}):`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
 async function pollLoop() {
   console.log(
     `[worker] Queue worker started base=${BASE_WORKER_ID} concurrency=${CONCURRENCY} poll=${POLL_MS}ms lease=${LEASE_SECONDS}s reclaimEvery=${RECLAIM_MS}ms`,
@@ -388,6 +403,7 @@ async function pollLoop() {
   try {
     await bootstrapEnqueueStateFromSupabase();
     await flushPendingActivityLogs().catch(() => undefined);
+    await safeMailQueueFlush("startup");
     await maybeEnqueueBySchedule("startup-catchup");
   } catch (err) {
     console.error("[worker] Startup schedule check failed:", err);
@@ -398,6 +414,14 @@ async function pollLoop() {
     for (;;) {
       await safeReclaim();
       await new Promise((r) => setTimeout(r, RECLAIM_MS));
+    }
+  })();
+
+  // Retry queued wrong-password emails if Netlify flush failed earlier
+  void (async () => {
+    for (;;) {
+      await safeMailQueueFlush("periodic");
+      await new Promise((r) => setTimeout(r, MAIL_FLUSH_MS));
     }
   })();
 
