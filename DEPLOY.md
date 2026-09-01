@@ -33,8 +33,25 @@ In Supabase → SQL Editor, run:
 7. `supabase/migrations/008_email_reminder_events.sql` ← **email reminder tracking**
 8. `supabase/migrations/009_trial_5_days_and_trial_ending.sql` ← **5-day trial + trial ending emails**
 9. `supabase/migrations/011_trial_starts_on_refresh.sql` ← **trial clock starts on Start daily refresh**
+10. `supabase/migrations/012`–`016` (email + `automation_logs_with_users` view)
 
 Confirm tables `automation_jobs`, `automation_logs`, `user_automation` exist.
+
+### Matching activity logs to users
+
+`automation_logs.id` is **not** the user ID — it is a **new UUID per log row** (by design).  
+The link to users is **`automation_logs.user_id` → `users.id`**.
+
+In Supabase Table Editor, open the view **`automation_logs_with_users`** (after migration `016`) to see `user_email`, `user_name`, and `log_id` together.
+
+Wrong-password emails link via `email_reminder_events.context_key` = `automation_logs.id` (same user via `user_id`).
+
+Local lookup CLI:
+
+```bash
+npm run logs:lookup -- user@example.com
+npm run logs:lookup -- <users-table-uuid>
+```
 
 ---
 

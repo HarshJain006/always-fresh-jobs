@@ -134,6 +134,32 @@ create table if not exists public.automation_logs (
 create index if not exists automation_logs_user_created_idx
   on public.automation_logs (user_id, created_at desc);
 
+create index if not exists automation_logs_user_id_idx
+  on public.automation_logs (user_id);
+
+comment on table public.automation_logs is
+  'One row per activity event. id = log row UUID; user_id = owner (users.id).';
+
+comment on column public.automation_logs.id is
+  'Unique ID of this log row (NOT the user ID).';
+
+comment on column public.automation_logs.user_id is
+  'Owner — matches public.users.id.';
+
+create or replace view public.automation_logs_with_users as
+select
+  l.id as log_id,
+  l.user_id,
+  u.email as user_email,
+  u.name as user_name,
+  u.google_user_id,
+  l.platform,
+  l.ok,
+  l.message,
+  l.created_at
+from public.automation_logs l
+left join public.users u on u.id = l.user_id;
+
 -- Resume metadata (file itself lives in Storage bucket "resumes")
 create table if not exists public.resumes (
   id uuid primary key default gen_random_uuid(),

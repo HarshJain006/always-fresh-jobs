@@ -16,7 +16,8 @@
     "worker:test-backend": "tsx scripts/retry-failed-today.ts --test-backend --run",
     "mail:test": "tsx scripts/test-email.ts",
     "mail:send": "tsx scripts/send-mail.ts",
-    "mail:flush-queue": "tsx scripts/flush-mail-queue.ts"
+    "mail:flush-queue": "tsx scripts/flush-mail-queue.ts",
+    "logs:lookup": "tsx scripts/lookup-user-logs.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
