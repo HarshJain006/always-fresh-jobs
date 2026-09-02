@@ -7,7 +7,12 @@
 
 import { getSupabaseServer, isSupabaseConfigured } from "@/lib/supabase";
 import { isTransientFetchError, withRetry } from "@/lib/retry";
-import { isFatalCredentialError, isPermanentSetupError, isRetryableUploadError } from "@/queue/jobErrors";
+import {
+  isFatalCredentialError,
+  isPermanentSetupError,
+  isRetryableUploadError,
+  JOB_RUN_MAX_ATTEMPTS,
+} from "@/queue/jobErrors";
 import { getUserAutomation, saveUserAutomation } from "@/database/userAutomation";
 import {
   type AutomationJob,
@@ -113,8 +118,7 @@ export async function enqueueJob(input: EnqueueInput): Promise<{
     job_type: input.jobType,
     status: "pending",
     priority: JOB_PRIORITY[input.jobType],
-    // Enough tries for flaky Naukri login, bounded so Pi does not spin all day
-    max_attempts: input.jobType === "daily_refresh" ? 8 : 5,
+    max_attempts: JOB_RUN_MAX_ATTEMPTS,
     available_at: (input.availableAt ?? new Date()).toISOString(),
     scheduled_for: scheduledFor,
   };
@@ -327,28 +331,42 @@ export async function reclaimStaleJobs(): Promise<number> {
 
 /**
  * After a failed Selenium run:
- * - wrong password / missing setup → stop (dead) + pause automation (no more daily retries)
- * - login page / upload flake → smart retry with backoff (bounded attempts)
- * - anything else → dead
+ * - missing setup → stop immediately + pause
+ * - wrong password (confirmed banner) → retry up to 3×, then pause + email
+ * - login/upload flake → retry up to 3×, then give up for today
  */
 export async function applyJobFailurePolicy(
   jobId: string,
   message: string,
   userId?: string,
 ): Promise<"dead" | "retry" | "exhausted"> {
-  if (isPermanentSetupError(message) || isFatalCredentialError(message)) {
+  const uid = userId ?? (await getJobUserId(jobId));
+
+  if (isPermanentSetupError(message)) {
     await markJobDeadPermanent(jobId, message);
-    const uid = userId ?? (await getJobUserId(jobId));
     if (uid) {
       await pauseAutomationAfterCredentialFailure(uid, message);
     }
     return "dead";
   }
-  if (isRetryableUploadError(message)) {
-    return await scheduleSmartRetry(jobId, message);
+
+  if (isFatalCredentialError(message)) {
+    const retry = await scheduleSmartRetry(jobId, message, { maxAttempts: JOB_RUN_MAX_ATTEMPTS });
+    if (retry === "exhausted") {
+      await markJobDeadPermanent(jobId, message);
+      if (uid) {
+        await pauseAutomationAfterCredentialFailure(uid, message);
+      }
+      return "dead";
+    }
+    return "retry";
   }
-  await markJobDeadPermanent(jobId, message);
-  return "dead";
+
+  if (isRetryableUploadError(message)) {
+    return await scheduleSmartRetry(jobId, message, { maxAttempts: JOB_RUN_MAX_ATTEMPTS });
+  }
+
+  return await scheduleSmartRetry(jobId, message, { maxAttempts: JOB_RUN_MAX_ATTEMPTS });
 }
 
 async function getJobUserId(jobId: string): Promise<string | null> {
@@ -473,6 +491,7 @@ export async function markJobDeadPermanent(jobId: string, message: string): Prom
 export async function scheduleSmartRetry(
   jobId: string,
   message: string,
+  options?: { maxAttempts?: number },
 ): Promise<"retry" | "exhausted"> {
   const { data: row, error: readErr } = await getSupabaseServer()
     .from("automation_jobs")
@@ -485,7 +504,8 @@ export async function scheduleSmartRetry(
   }
 
   const attempts = Number((row as { attempts?: number } | null)?.attempts ?? 0);
-  const maxAttempts = Math.max(3, Number((row as { max_attempts?: number } | null)?.max_attempts ?? 8));
+  const rowMax = Number((row as { max_attempts?: number } | null)?.max_attempts ?? JOB_RUN_MAX_ATTEMPTS);
+  const maxAttempts = Math.max(1, options?.maxAttempts ?? rowMax);
 
   if (attempts >= maxAttempts) {
     const { error } = await getSupabaseServer()

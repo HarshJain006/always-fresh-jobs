@@ -42,15 +42,7 @@ async function finish(
   const userMessage = toUserFacingActivityMessage(message, ok);
   if (writeLog && shouldWriteUserActivityLog(ok, message) && userMessage) {
     try {
-      const log = await saveLog({ userId, platform, ok, message: userMessage });
-      if (!ok && isCredentialFailureMessage(message, userMessage)) {
-        await notifyCredentialFailure(userId, log.id, message, userMessage).catch((err) => {
-          console.error(
-            `[worker] credential failure email failed for user=${userId}:`,
-            err instanceof Error ? err.message : err,
-          );
-        });
-      }
+      await saveLog({ userId, platform, ok, message: userMessage });
     } catch (err) {
       console.error(
         `[worker] activity log write failed for user=${userId}:`,
@@ -58,8 +50,27 @@ async function finish(
       );
     }
   }
-  // Keep raw backend message for queue retry policy; UI uses userMessage only when logged
   return { userId, platform, ok, message, durationMs: Date.now() - started };
+}
+
+/** After 3 failed attempts — write activity log + send wrong-password email. */
+export async function recordFinalCredentialFailure(
+  userId: string,
+  platform: PlatformId,
+  message: string,
+): Promise<void> {
+  const userMessage = toUserFacingActivityMessage(message, false);
+  if (!userMessage || !isCredentialFailureMessage(message, userMessage)) return;
+
+  try {
+    const log = await saveLog({ userId, platform, ok: false, message: userMessage });
+    await notifyCredentialFailure(userId, log.id, message, userMessage);
+  } catch (err) {
+    console.error(
+      `[worker] final credential failure notify failed for user=${userId}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 export async function runPlatformForUser(
@@ -154,35 +165,22 @@ export async function runPlatformForUser(
     headless: options.headless ?? true,
   });
 
-  // Frontend activity: only success or wrong password (skipped entirely for backend test runs)
+  // Frontend activity: log success only; wrong-password logged after 3 failed attempts (queue-worker)
   if (
     !options.skipUserActivityLog &&
+    result.ok &&
     shouldWriteUserActivityLog(result.ok, result.message)
   ) {
     const userMessage = toUserFacingActivityMessage(result.message, result.ok);
     if (userMessage) {
       try {
-        const log = await saveLog({
+        await saveLog({
           userId,
           platform,
           ok: result.ok,
           message: userMessage,
         });
-        if (!result.ok && isCredentialFailureMessage(result.message, userMessage)) {
-          await notifyCredentialFailure(
-            userId,
-            log.id,
-            result.message,
-            userMessage,
-          ).catch((err: unknown) => {
-            console.error(
-              `[worker] credential failure email failed for user=${userId}:`,
-              err instanceof Error ? err.message : err,
-            );
-          });
-        }
       } catch (err) {
-        // Upload already succeeded/failed — never lose the job over a log write
         console.error(
           `[worker] activity log write failed for user=${userId}:`,
           err instanceof Error ? err.message : err,

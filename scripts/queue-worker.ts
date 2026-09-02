@@ -17,7 +17,10 @@ import "./load-env";
 import cron from "node-cron";
 import * as os from "node:os";
 import { claimNextJob, completeJob, heartbeatJob, reclaimStaleJobs, summarizeDailyJobsForDate, applyJobFailurePolicy } from "../src/queue/jobs";
+import { isFatalCredentialError } from "../src/queue/jobErrors";
+import { recordFinalCredentialFailure } from "../src/automation/worker";
 import { requestMailQueueFlush } from "../src/notifications/credentialFailureQueue";
+import { invokeCronEndpoint } from "../src/lib/cronTrigger";
 import { isTransientFetchError, withRetry } from "../src/lib/retry";
 import {
   enqueueDailyJobsForEligibleUsers,
@@ -332,6 +335,16 @@ async function processOneJob(workerId: string): Promise<boolean> {
       await completeJob(job.id, workerId, false, result.message);
       const policy = await applyJobFailurePolicy(job.id, result.message, job.user_id);
       if (policy === "dead") {
+        if (isFatalCredentialError(result.message)) {
+          await recordFinalCredentialFailure(job.user_id, job.platform, result.message).catch(
+            (err) => {
+              console.error(
+                `[worker] credential notify failed for user=${job.user_id}:`,
+                err instanceof Error ? err.message : err,
+              );
+            },
+          );
+        }
         console.log(`[worker] ${job.id} stopped — wrong password / setup (automation paused)`);
       } else if (policy === "exhausted") {
         console.log(`[worker] ${job.id} gave up for today — will try tomorrow`);
@@ -346,6 +359,14 @@ async function processOneJob(workerId: string): Promise<boolean> {
       await completeJob(job.id, workerId, false, message);
       const policy = await applyJobFailurePolicy(job.id, message, job.user_id);
       if (policy === "dead") {
+        if (isFatalCredentialError(message)) {
+          await recordFinalCredentialFailure(job.user_id, job.platform, message).catch((err) => {
+            console.error(
+              `[worker] credential notify failed for user=${job.user_id}:`,
+              err instanceof Error ? err.message : err,
+            );
+          });
+        }
         console.log(`[worker] ${job.id} stopped — wrong password / setup (automation paused)`);
       } else if (policy === "exhausted") {
         console.log(`[worker] ${job.id} gave up for today — will try tomorrow`);
@@ -383,13 +404,40 @@ async function slotLoop(slot: number) {
 }
 
 async function safeMailQueueFlush(reason: string): Promise<void> {
-  if (!process.env.CRON_SECRET?.trim()) return;
+  if (!process.env.CRON_SECRET?.trim()) {
+    console.warn("[mail] CRON_SECRET unset — cannot flush mail queue from Pi worker.");
+    return;
+  }
   try {
     const ok = await requestMailQueueFlush();
     if (ok) console.info(`[mail] queue flush ok (${reason})`);
+    else console.warn(`[mail] queue flush did not complete (${reason})`);
   } catch (err) {
     console.warn(
       `[mail] queue flush failed (${reason}):`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+async function safeReminderSweep(reason: string): Promise<void> {
+  if (!process.env.CRON_SECRET?.trim()) {
+    console.warn("[mail] CRON_SECRET unset — cannot run reminder sweep from Pi worker.");
+    return;
+  }
+  try {
+    const result = await invokeCronEndpoint("/api/cron/reminders");
+    if (result.ok) {
+      const sent = typeof result.payload?.sent === "number" ? result.payload.sent : 0;
+      console.info(`[mail] reminder sweep ok (${reason}) sent=${sent}`);
+    } else {
+      console.warn(
+        `[mail] reminder sweep failed (${reason}): ${result.body.slice(0, 300)}`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `[mail] reminder sweep failed (${reason}):`,
       err instanceof Error ? err.message : err,
     );
   }
@@ -453,9 +501,17 @@ async function main() {
     },
     { timezone: "Asia/Kolkata" },
   );
+  cron.schedule(
+    "0 10 * * *",
+    () => {
+      void safeReminderSweep("daily-10am-ist");
+    },
+    { timezone: "Asia/Kolkata" },
+  );
   console.log(
     "[worker] Dynamic enqueue enabled — start = 8:00 AM IST − (ceil(users/concurrency) × 3 min + buffer)",
   );
+  console.log("[worker] Daily reminder emails scheduled for 10:00 AM IST (backup to Netlify cron)");
 
   await pollLoop();
 }

@@ -17,6 +17,7 @@
     "mail:test": "tsx scripts/test-email.ts",
     "mail:send": "tsx scripts/send-mail.ts",
     "mail:flush-queue": "tsx scripts/flush-mail-queue.ts",
+    "mail:check-cron": "tsx scripts/check-mail-cron.ts",
     "logs:lookup": "tsx scripts/lookup-user-logs.ts"
   },
   "dependencies": {
@@ -86,6 +87,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
+    "@netlify/functions": "^5.1.2",
     "@netlify/vite-plugin-tanstack-start": "^1.3.16",
     "@types/node": "^22.16.5",
     "@types/node-cron": "^3.0.11",

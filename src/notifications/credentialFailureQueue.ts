@@ -6,6 +6,7 @@
 import { findUserById } from "@/database/users";
 import { isCredentialFailureMessage } from "@/queue/jobErrors";
 import { getSupabaseServer, isSupabaseServerConfigured } from "@/lib/supabase";
+import { invokeCronEndpoint } from "@/lib/cronTrigger";
 
 export const CREDENTIAL_FAILURE_REMINDER_TYPE = "naukri_credentials_failed" as const;
 
@@ -106,34 +107,28 @@ export async function queueCredentialFailureEmail(
   return true;
 }
 
-/** Ask Netlify to drain queued transactional emails. Returns true when HTTP 2xx. */
+/** Ask Netlify to drain queued transactional emails. Returns true when HTTP 2xx and delivery succeeded. */
 export async function requestMailQueueFlush(): Promise<boolean> {
-  const secret = process.env.CRON_SECRET?.trim();
-  const base = (process.env.VITE_APP_URL || "https://dailyresume.in").replace(/\/$/, "");
-  if (!secret) {
-    console.warn("[mail] CRON_SECRET unset; cannot flush mail queue from worker.");
-    return false;
+  const result = await invokeCronEndpoint("/api/cron/mail-queue");
+  if (!result.ok) {
+    const warning =
+      typeof result.payload?.warning === "string" ? result.payload.warning : undefined;
+    const pending = typeof result.payload?.pending === "number" ? result.payload.pending : 0;
+    const sent = typeof result.payload?.sent === "number" ? result.payload.sent : 0;
+    if (warning) {
+      console.warn(`[mail] queue flush warning: ${warning} pending=${pending}`);
+    } else if (result.status === 0) {
+      console.warn(`[mail] queue flush failed: ${result.body}`);
+    } else {
+      console.warn(
+        `[mail] queue flush returned ${result.status}: ${result.body.slice(0, 200)}`,
+      );
+    }
+    return sent > 0;
   }
 
-  try {
-    const res = await fetch(`${base}/api/cron/mail-queue`, {
-      method: "POST",
-      headers: { "x-cron-secret": secret },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.warn(`[mail] queue flush returned ${res.status}: ${body.slice(0, 200)}`);
-      return false;
-    }
-    const payload = (await res.json().catch(() => null)) as { sent?: number } | null;
-    console.info(`[mail] queue flush ok sent=${payload?.sent ?? "?"}`);
-    return true;
-  } catch (err) {
-    console.warn(
-      "[mail] queue flush webhook failed:",
-      err instanceof Error ? err.message : err,
-    );
-    return false;
-  }
+  const sent = typeof result.payload?.sent === "number" ? result.payload.sent : 0;
+  const pending = typeof result.payload?.pending === "number" ? result.payload.pending : 0;
+  console.info(`[mail] queue flush ok sent=${sent} pending=${pending}`);
+  return true;
 }

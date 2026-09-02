@@ -24,7 +24,8 @@ export const Route = createFileRoute("/api/cron/reminders")({
 
         try {
           const reminders = await runReminderSweep();
-          return Response.json({ ok: true, ...reminders });
+          const status = reminders.ok ? 200 : 503;
+          return Response.json(reminders, { status });
         } catch (err) {
           console.error("[mail] reminder cron failed:", err);
           return Response.json(
@@ -42,7 +43,8 @@ export const Route = createFileRoute("/api/cron/reminders")({
 
         try {
           const reminders = await runReminderSweep();
-          return Response.json({ ok: true, ...reminders });
+          const status = reminders.ok ? 200 : 503;
+          return Response.json(reminders, { status });
         } catch (err) {
           console.error("[mail] reminder cron failed:", err);
           return Response.json(

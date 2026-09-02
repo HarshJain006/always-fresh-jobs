@@ -582,20 +582,65 @@ export async function processQueuedEmails(): Promise<number> {
   return sent;
 }
 
-/** Process only queued rows (credential failures, cap overflow). Used by /api/cron/mail-queue. */
-export async function runMailQueueFlush(): Promise<{
+export type MailQueueFlushResult = {
+  ok: boolean;
   sent: number;
+  pending: number;
   sentToday: number;
   cap: number;
-}> {
-  if (!isSupabaseServerConfigured() || !isResendConfigured()) {
-    return { sent: 0, sentToday: 0, cap: DAILY_EMAIL_CAP };
+  resendConfigured: boolean;
+  supabaseConfigured: boolean;
+  warning?: string;
+};
+
+/** Process only queued rows (credential failures, cap overflow). Used by /api/cron/mail-queue. */
+export async function runMailQueueFlush(): Promise<MailQueueFlushResult> {
+  const supabaseConfigured = isSupabaseServerConfigured();
+  const resendConfigured = isResendConfigured();
+  const pending = supabaseConfigured ? (await loadPendingMailQueueRows()).length : 0;
+
+  if (!supabaseConfigured) {
+    return {
+      ok: false,
+      sent: 0,
+      pending: 0,
+      sentToday: 0,
+      cap: DAILY_EMAIL_CAP,
+      resendConfigured,
+      supabaseConfigured,
+      warning: "Supabase is not configured on the server.",
+    };
+  }
+
+  if (!resendConfigured) {
+    return {
+      ok: false,
+      sent: 0,
+      pending,
+      sentToday: 0,
+      cap: DAILY_EMAIL_CAP,
+      resendConfigured,
+      supabaseConfigured,
+      warning:
+        pending > 0
+          ? "Resend is not configured on the server. Set RESEND_API_KEY and RESEND_FROM_EMAIL on Netlify."
+          : undefined,
+    };
   }
 
   resetEmailBatchCounter();
   const sent = await processQueuedEmails();
   const sentToday = await countEmailsSentTodayIst();
-  return { sent, sentToday, cap: DAILY_EMAIL_CAP };
+  const pendingAfter = (await loadPendingMailQueueRows()).length;
+  return {
+    ok: true,
+    sent,
+    pending: pendingAfter,
+    sentToday,
+    cap: DAILY_EMAIL_CAP,
+    resendConfigured,
+    supabaseConfigured,
+  };
 }
 
 /**
@@ -603,16 +648,38 @@ export async function runMailQueueFlush(): Promise<{
  * - Max 95 emails per IST day; overflow queued for next day
  * - Priority: wrong password → trial ended → subscription ending → others
  */
-export async function runReminderSweep(): Promise<{
+export type ReminderSweepResult = {
+  ok: boolean;
   sent: number;
   queued: number;
   attempted: number;
   skipped: number;
   sentToday: number;
   cap: number;
-}> {
-  if (!isSupabaseServerConfigured() || !isResendConfigured()) {
-    return { sent: 0, queued: 0, attempted: 0, skipped: 0, sentToday: 0, cap: DAILY_EMAIL_CAP };
+  resendConfigured: boolean;
+  supabaseConfigured: boolean;
+  warning?: string;
+};
+
+export async function runReminderSweep(): Promise<ReminderSweepResult> {
+  const supabaseConfigured = isSupabaseServerConfigured();
+  const resendConfigured = isResendConfigured();
+
+  if (!supabaseConfigured || !resendConfigured) {
+    return {
+      ok: false,
+      sent: 0,
+      queued: 0,
+      attempted: 0,
+      skipped: 0,
+      sentToday: 0,
+      cap: DAILY_EMAIL_CAP,
+      resendConfigured,
+      supabaseConfigured,
+      warning: !supabaseConfigured
+        ? "Supabase is not configured on the server."
+        : "Resend is not configured on the server. Set RESEND_API_KEY and RESEND_FROM_EMAIL on Netlify.",
+    };
   }
 
   resetEmailBatchCounter();
@@ -644,12 +711,15 @@ export async function runReminderSweep(): Promise<{
 
   const sentToday = await countEmailsSentTodayIst();
   return {
+    ok: true,
     sent,
     queued,
     attempted: candidates.length,
     skipped,
     sentToday,
     cap: DAILY_EMAIL_CAP,
+    resendConfigured,
+    supabaseConfigured,
   };
 }
 

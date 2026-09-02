@@ -22,6 +22,10 @@ import {
 import { logPdfFileDetails } from "./resume";
 import { withLoginGate } from "./loginGate";
 import type { NaukriCredentials } from "./types";
+import {
+  CONFIRMED_CREDENTIAL_FAILURE_MESSAGE,
+  isNaukriCredentialBanner,
+} from "@/queue/jobErrors";
 
 /** Chrome profile dirs keyed by WebDriver — each parallel job needs its own dir. */
 const chromeProfiles = new WeakMap<WebDriver, string>();
@@ -467,7 +471,7 @@ export async function naukriLogin(
       await passField.sendKeys(creds.password);
       await sleep(600);
       await loginButton.sendKeys(Key.ENTER);
-      await sleep(3500);
+      await sleep(5000);
 
       logMsg("Checking Skip button");
       if (await waitTillElementPresent(driver, closeLocator, "XPATH", 8)) {
@@ -479,7 +483,7 @@ export async function naukriLogin(
         await el?.click();
       }
 
-      if (await waitTillElementPresent(driver, "ff-inventory", "ID", 45)) {
+      if (await waitTillElementPresent(driver, "ff-inventory", "ID", 55)) {
         const checkpoint = await getElement(driver, "ff-inventory", "ID");
         if (checkpoint) {
           logMsg("Naukri Login Successful");
@@ -487,15 +491,18 @@ export async function naukriLogin(
         }
       }
 
-      // Form was filled + submitted. Still seeing the password field means login
-      // did not succeed — treat as wrong credentials (not a flaky page-load).
-      // Naukri often shows a weak/slow error banner; missing text must NOT retry forever.
+      // Slow redirect — one more check before treating as failure
+      await sleep(4000);
+      if (await waitTillElementPresent(driver, "ff-inventory", "ID", 20)) {
+        logMsg("Naukri Login Successful (delayed)");
+        return { status: true, driver };
+      }
+
       const stillOnLogin =
         (await waitTillAnyPresent(driver, PASSWORD_CANDIDATES, 3)) !== null;
       let errorText = "";
       try {
-        // Give Naukri a moment to render the error banner
-        await sleep(1500);
+        await sleep(2000);
         if (await isElementPresent(driver, By.xpath(loginErrorXpath))) {
           const errEl = await getElement(driver, loginErrorXpath, "XPATH");
           errorText = ((await errEl?.getText()) || "").trim();
@@ -514,11 +521,25 @@ export async function naukriLogin(
         /* ignore */
       }
 
+      if (stillOnLogin && errorText) {
+        if (isNaukriCredentialBanner(errorText)) {
+          logMsg(CONFIRMED_CREDENTIAL_FAILURE_MESSAGE + ` (Naukri: ${errorText})`);
+          return {
+            status: false,
+            driver,
+            error: CONFIRMED_CREDENTIAL_FAILURE_MESSAGE,
+          };
+        }
+      }
+
       if (stillOnLogin) {
-        const message =
-          "Naukri login failed — incorrect username or password. Update your Naukri credentials and try again.";
-        logMsg(message + (errorText ? ` (Naukri: ${errorText})` : " (still on login after submit)"));
-        return { status: false, driver, error: message };
+        lastError = "Naukri login could not be confirmed — will retry.";
+        logMsg(
+          lastError + (errorText ? ` (on-page text: ${errorText})` : " (still on login after submit)"),
+        );
+        await tearDown(driver);
+        driver = null;
+        continue;
       }
 
       lastError = "Naukri login could not be confirmed — will retry.";

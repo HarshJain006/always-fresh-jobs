@@ -14,6 +14,11 @@
 # Headers: x-cron-secret: <CRON_SECRET>
 # /api/cron/daily-refresh — enqueues resume jobs into Supabase
 # /api/cron/reminders    — sends trial/subscription expiry emails (run daily)
+# /api/cron/mail-queue   — drains queued emails (wrong password, cap overflow)
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
 
 # PWA installability — correct MIME + no stale SW/manifest
 [[headers]]

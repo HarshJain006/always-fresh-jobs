@@ -18,7 +18,8 @@ export const Route = createFileRoute("/api/cron/mail-queue")({
 
         try {
           const result = await runMailQueueFlush();
-          return Response.json({ ok: true, ...result });
+          const status = result.ok ? 200 : 503;
+          return Response.json(result, { status });
         } catch (err) {
           console.error("[mail] mail-queue cron failed:", err);
           return Response.json(
@@ -36,7 +37,8 @@ export const Route = createFileRoute("/api/cron/mail-queue")({
 
         try {
           const result = await runMailQueueFlush();
-          return Response.json({ ok: true, ...result });
+          const status = result.ok ? 200 : 503;
+          return Response.json(result, { status });
         } catch (err) {
           console.error("[mail] mail-queue cron failed:", err);
           return Response.json(
