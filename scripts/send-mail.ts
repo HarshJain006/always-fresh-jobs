@@ -164,30 +164,40 @@ async function runWelcomeAll(args: string[]): Promise<void> {
 async function runExpiredAll(args: string[]): Promise<void> {
   const dryRun = args.includes("--dry-run");
   const confirm = args.includes("--confirm");
+  const resend = args.includes("--resend");
 
   if (!dryRun && !confirm) {
     console.error(
       "Bulk expired-user email requires --dry-run (preview) or --confirm (send).\n\n" +
         "  npm run mail:send -- expired-all --dry-run\n" +
-        "  npm run mail:send -- expired-all --confirm",
+        "  npm run mail:send -- expired-all --confirm\n" +
+        "  npm run mail:send -- expired-all --confirm --resend   # send again to eligible users",
     );
     process.exit(1);
   }
 
   console.log("Mode:", dryRun ? "dry-run (no emails sent)" : "send");
+  if (resend) console.log("Resend: yes (clears prior campaign marks for eligible users)");
   console.log("Resend configured:", isResendConfigured());
   console.log("From:", process.env.RESEND_FROM_EMAIL || "(missing)");
 
-  const result = await sendExpiredReengageToAllUsers({ dryRun });
+  const result = await sendExpiredReengageToAllUsers({ dryRun, resend });
 
   console.log("\nResults:");
   console.log(`  Expired users (eligible): ${result.total}`);
   console.log(`    Trial ended:            ${result.trial}`);
   console.log(`    Subscription ended:     ${result.subscription}`);
+  console.log(`    Of eligible, with resume: ${result.withResume}`);
+  console.log(
+    `  Resume uploaders still active (NOT eligible for expired mail): ${result.resumeButActive}`,
+  );
   if (dryRun) {
     console.log(`  Would send now:           ${result.sent}`);
     console.log(`  Already sent / queued:  ${result.skipped}`);
     console.log("\nRun with --confirm to send for real.");
+    if (result.skipped > 0) {
+      console.log("To send again to already-emailed eligible users, add --resend.");
+    }
   } else {
     console.log(`  Sent:                   ${result.sent}`);
     console.log(`  Queued (daily cap):     ${result.queued}`);

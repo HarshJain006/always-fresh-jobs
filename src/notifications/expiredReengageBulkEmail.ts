@@ -24,11 +24,14 @@ export type ExpiredReengageBulkResult = {
   total: number;
   trial: number;
   subscription: number;
+  withResume: number;
+  resumeButActive: number;
   sent: number;
   queued: number;
   skipped: number;
   failed: number;
   dryRun: boolean;
+  resend: boolean;
 };
 
 function hasPaidAccess(user: User, nowMs: number): boolean {
@@ -146,24 +149,64 @@ export async function deliverQueuedExpiredReengage(userId: string): Promise<bool
   }
 }
 
+async function loadResumeUserIds(): Promise<Set<string>> {
+  const { data, error } = await getSupabaseServer()
+    .from("user_automation")
+    .select("user_id, resume")
+    .limit(10_000);
+  if (error) throw new Error(`loadResumeUserIds failed: ${error.message}`);
+
+  const ids = new Set<string>();
+  for (const row of data ?? []) {
+    const resume = row.resume as { path?: string } | null;
+    if (resume && typeof resume === "object" && resume.path) {
+      ids.add(String(row.user_id));
+    }
+  }
+  return ids;
+}
+
+async function clearCampaignRows(userIds: string[]): Promise<void> {
+  if (userIds.length === 0) return;
+  // Chunk to avoid URL/body limits
+  const chunkSize = 100;
+  for (let i = 0; i < userIds.length; i += chunkSize) {
+    const chunk = userIds.slice(i, i + chunkSize);
+    const { error } = await getSupabaseServer()
+      .from("email_reminder_events")
+      .delete()
+      .eq("reminder_type", EXPIRED_REENGAGE_REMINDER_TYPE)
+      .eq("context_key", EXPIRED_REENGAGE_CONTEXT_KEY)
+      .in("user_id", chunk);
+    if (error) throw new Error(`clearCampaignRows failed: ${error.message}`);
+  }
+}
+
 /**
  * Send positive upsell email to every user whose trial or subscription has ended.
  * Respects daily cap; overflow queued for next run/cron.
+ *
+ * @param resend — clear prior campaign rows for eligible users and send again
  */
 export async function sendExpiredReengageToAllUsers(options: {
   dryRun?: boolean;
+  resend?: boolean;
 } = {}): Promise<ExpiredReengageBulkResult> {
   const dryRun = options.dryRun === true;
+  const resend = options.resend === true;
   const nowMs = Date.now();
   const result: ExpiredReengageBulkResult = {
     total: 0,
     trial: 0,
     subscription: 0,
+    withResume: 0,
+    resumeButActive: 0,
     sent: 0,
     queued: 0,
     skipped: 0,
     failed: 0,
     dryRun,
+    resend,
   };
 
   if (!isSupabaseServerConfigured()) {
@@ -173,7 +216,7 @@ export async function sendExpiredReengageToAllUsers(options: {
     throw new Error("Resend is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL in .env");
   }
 
-  const allUsers = await loadActiveUsers();
+  const [allUsers, resumeIds] = await Promise.all([loadActiveUsers(), loadResumeUserIds()]);
   const eligible = allUsers
     .map((user) => ({ user, kind: getExpiredAccessKind(user, nowMs) }))
     .filter((x): x is { user: User; kind: ExpiredAccessKind } => x.kind !== null);
@@ -181,10 +224,19 @@ export async function sendExpiredReengageToAllUsers(options: {
   result.total = eligible.length;
   result.trial = eligible.filter((x) => x.kind === "trial").length;
   result.subscription = eligible.filter((x) => x.kind === "subscription").length;
+  result.withResume = eligible.filter((x) => resumeIds.has(x.user.id)).length;
+  result.resumeButActive = [...resumeIds].filter((id) => {
+    const user = allUsers.find((u) => u.id === id);
+    return user ? getExpiredAccessKind(user, nowMs) === null : false;
+  }).length;
+
+  if (resend && !dryRun) {
+    await clearCampaignRows(eligible.map((x) => x.user.id));
+  }
 
   if (dryRun) {
     for (const { user } of eligible) {
-      const row = await getCampaignRow(user.id);
+      const row = resend ? null : await getCampaignRow(user.id);
       if (row?.status === "sent" || row?.status === "queued") result.skipped++;
       else result.sent++;
     }

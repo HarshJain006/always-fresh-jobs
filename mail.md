@@ -155,9 +155,11 @@ Fetches users from Supabase whose **trial or subscription has ended** and they h
 - Subscription ended — paid plan expired
 
 **Who is skipped:**
-- Active trial or subscription
-- Already received this campaign
+- Active trial or subscription (including resume uploaders still on trial)
+- Already received this campaign (unless you pass `--resend`)
 - No email on file
+
+**Note:** Uploading a resume alone does **not** make someone eligible. Only users whose **access has ended** get this email. Dry-run shows how many eligible users have a resume vs how many resume uploaders are still active.
 
 **Step 1 — preview:**
 
@@ -165,12 +167,18 @@ Fetches users from Supabase whose **trial or subscription has ended** and they h
 npm run mail:send -- expired-all --dry-run
 ```
 
-Shows: total eligible, trial vs subscription breakdown, would-send vs already-sent.
+Shows: total eligible, trial vs subscription breakdown, resume counts, would-send vs already-sent.
 
 **Step 2 — send for real:**
 
 ```bash
 npm run mail:send -- expired-all --confirm
+```
+
+**Resend to eligible users who already got it:**
+
+```bash
+npm run mail:send -- expired-all --confirm --resend
 ```
 
 ---

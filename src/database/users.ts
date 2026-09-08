@@ -122,7 +122,11 @@ export async function startTrialClockIfNeeded(userId: string): Promise<User> {
       .maybeSingle();
 
     if (error) {
-      throw new Error(`Could not start free trial: ${error.message}`);
+      const hint =
+        error.message.includes("immutable") || error.message.includes("anti-fraud")
+          ? " Apply supabase/migrations/018_fix_trial_start_tamper_trigger.sql in the Supabase SQL Editor, then try Start again."
+          : "";
+      throw new Error(`Could not start free trial: ${error.message}.${hint}`);
     }
 
     // Race: another request started the clock first

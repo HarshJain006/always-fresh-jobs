@@ -65,12 +65,47 @@ create trigger users_force_trial_on_insert
   for each row
   execute function public.force_trial_on_insert();
 
+-- JWT role helper + trial/billing triggers: see migrations/018_fix_trial_start_tamper_trigger.sql
+create or replace function public.jwt_role()
+returns text
+language plpgsql
+stable
+as $$
+declare
+  claims jsonb;
+  role text;
+begin
+  role := nullif(current_setting('request.jwt.claim.role', true), '');
+  if role is not null then
+    return role;
+  end if;
+  begin
+    claims := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
+  exception when others then
+    claims := null;
+  end;
+  if claims is not null then
+    role := nullif(claims->>'role', '');
+    if role is not null then
+      return role;
+    end if;
+  end if;
+  begin
+    return nullif(auth.role(), '');
+  exception when others then
+    return null;
+  end;
+end;
+$$;
+
 create or replace function public.prevent_trial_tampering()
 returns trigger
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
-  bypass text;
+  role text;
 begin
   if new.google_user_id is distinct from old.google_user_id then
     raise exception 'google_user_id is immutable';
@@ -79,14 +114,18 @@ begin
     raise exception 'created_at is immutable';
   end if;
 
-  bypass := current_setting('request.jwt.claim.role', true);
-  if bypass = 'service_role' or current_setting('app.allow_billing', true) = 'on' then
-    if old.trial_used = true then
-      if new.trial_used is distinct from true
-         or new.trial_started_at is distinct from old.trial_started_at
-         or new.trial_expire_at is distinct from old.trial_expire_at then
-        raise exception 'Free trial fields are immutable after trial has started (anti-fraud)';
-      end if;
+  -- One-time Start daily refresh activation (RLS already blocks client UPDATEs)
+  if old.trial_used is distinct from true and new.trial_used = true then
+    return new;
+  end if;
+
+  role := public.jwt_role();
+
+  if old.trial_used = true then
+    if new.trial_used is distinct from true
+       or new.trial_started_at is distinct from old.trial_started_at
+       or new.trial_expire_at is distinct from old.trial_expire_at then
+      raise exception 'Free trial fields are immutable after trial has started (anti-fraud)';
     end if;
     return new;
   end if;
@@ -94,6 +133,9 @@ begin
   if new.trial_started_at is distinct from old.trial_started_at
      or new.trial_expire_at is distinct from old.trial_expire_at
      or new.trial_used is distinct from old.trial_used then
+    if role = 'service_role' or current_setting('app.allow_billing', true) = 'on' then
+      return new;
+    end if;
     raise exception 'Free trial fields are immutable (anti-fraud)';
   end if;
   return new;
