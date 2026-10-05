@@ -135,7 +135,12 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
     const priceText = String(form.get("price") ?? "").trim();
     const isListed = form.get("listed") === "on";
     const bio = String(form.get("bio") ?? "").trim();
+    const username = String(form.get("username") ?? "").trim();
     const githubRepos = String(form.get("githubRepos") ?? "").split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
+    if (!/^[a-zA-Z0-9_-]{2,40}$/.test(username)) {
+      toast.error("Username must be 2–40 characters and use only letters, numbers, hyphens, or underscores.");
+      return;
+    }
     if (isListed && (latitude == null || longitude == null)) {
       toast.error("Set your location before going live.");
       return;
@@ -146,7 +151,7 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
     }
     setSaving(true);
     const profileUpdate = {
-      username: String(form.get("username") ?? "").trim(),
+      username,
       full_name: String(form.get("fullName") ?? "").trim(),
       headline: String(form.get("headline") ?? "").trim(),
       bio,
@@ -196,7 +201,7 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
             <Input id="avatar" type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAvatar(file); }} />
           </div>
         </div>
-        <div className="field-grid"><div><Label htmlFor="fullName">Name</Label><Input id="fullName" name="fullName" defaultValue={profile.full_name} required /></div><div><Label htmlFor="username">Username</Label><Input id="username" name="username" defaultValue={profile.username} required /></div></div>
+        <div className="field-grid"><div><Label htmlFor="fullName">Name</Label><Input id="fullName" name="fullName" defaultValue={profile.full_name} required /></div><div><Label htmlFor="username">Username</Label><Input id="username" name="username" defaultValue={profile.username} required minLength={2} maxLength={40} pattern="[a-zA-Z0-9_-]{2,40}" title="Use 2–40 letters, numbers, hyphens, or underscores." /><p className="field-help">2–40 characters: letters, numbers, hyphens, underscores.</p></div></div>
         <div><Label htmlFor="headline">Professional headline</Label><Input id="headline" name="headline" defaultValue={profile.headline} placeholder="Brand designer & creative director" /></div>
         <div><Label htmlFor="bio">About your work</Label><Textarea id="bio" name="bio" defaultValue={profile.bio} placeholder="Tell clients what you do best..." rows={4} /></div>
         <div><Label htmlFor="services">Services</Label><Input id="services" name="services" defaultValue={profile.services.join(", ")} placeholder="Brand identity, Web design, Art direction" /><p className="field-help">Separate services with commas.</p></div>
