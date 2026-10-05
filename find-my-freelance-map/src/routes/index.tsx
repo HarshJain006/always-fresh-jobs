@@ -89,7 +89,7 @@ export function AtlasworkPage() {
       starting_price: null,
       currency: "USD",
       is_available: true,
-      is_listed: false,
+      is_listed: true,
       contact_email: email,
       linkedin_url: "",
       instagram_url: "",

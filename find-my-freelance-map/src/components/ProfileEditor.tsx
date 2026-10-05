@@ -134,9 +134,14 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
     const services = String(form.get("services") ?? "").split(",").map((item) => item.trim()).filter(Boolean);
     const priceText = String(form.get("price") ?? "").trim();
     const isListed = form.get("listed") === "on";
+    const bio = String(form.get("bio") ?? "").trim();
     const githubRepos = String(form.get("githubRepos") ?? "").split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
     if (isListed && (latitude == null || longitude == null)) {
       toast.error("Set your location before going live.");
+      return;
+    }
+    if (isListed && !bio) {
+      toast.error("Add a short description of your work before publishing your profile.");
       return;
     }
     setSaving(true);
@@ -144,7 +149,7 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
       username: String(form.get("username") ?? "").trim(),
       full_name: String(form.get("fullName") ?? "").trim(),
       headline: String(form.get("headline") ?? "").trim(),
-      bio: String(form.get("bio") ?? "").trim(),
+      bio,
       location_name: locationName.trim(),
       country: (country.trim() || locationName.split(",").pop()?.trim() || ""),
       contact_email: String(form.get("contactEmail") ?? "").trim(),
@@ -169,7 +174,7 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
     setSaving(true);
     try {
       await saveProfile(profileUpdate);
-      toast.success("Your freelancer profile is live.");
+      toast.success(isListed ? "Your freelancer profile is live." : "Profile saved as a draft. Turn on map listing to publish it.");
       onSaved();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save your profile.");

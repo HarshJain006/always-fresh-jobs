@@ -29,7 +29,12 @@ const profileSchema = z.object({
   is_available: z.boolean(),
   is_listed: z.boolean(),
 }).refine((item) => (item.latitude === null) === (item.longitude === null))
-  .refine((item) => !item.is_listed || item.latitude !== null);
+  .refine((item) => !item.is_listed || item.latitude !== null, {
+    message: "A public freelancer profile must have a map location.",
+  })
+  .refine((item) => !item.is_listed || item.bio.trim().length > 0, {
+    message: "A public freelancer profile must include a description.",
+  });
 
 const portfolioSchema = z.object({
   title: z.string().trim().min(1).max(80),
