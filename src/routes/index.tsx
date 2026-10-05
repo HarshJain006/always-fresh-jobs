@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowRight,
   ArrowLeft,
@@ -89,7 +89,6 @@ const FAQ = [
   },
 ];
 
-const PANELS = ["Intro", "Features", "How it works", "Platforms", "Atlaswork", "FAQ", "Start"];
 const ATLASWORK_WORLD_TILES = [
   { x: 0, y: 0 },
   { x: 1, y: 0 },
@@ -98,94 +97,23 @@ const ATLASWORK_WORLD_TILES = [
 ];
 
 function Landing() {
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState(0);
   const user = useAuthUser();
-
-  // Only horizontal scroll (trackpad / shift+wheel / arrow keys) changes panels.
-  // Vertical scroll is preserved for content inside each panel.
-  useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      const i = Math.round(el.scrollLeft / el.clientWidth);
-      setActive(Math.max(0, Math.min(PANELS.length - 1, i)));
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight") el.scrollBy({ left: el.clientWidth, behavior: "smooth" });
-      if (e.key === "ArrowLeft") el.scrollBy({ left: -el.clientWidth, behavior: "smooth" });
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("keydown", onKey);
-    return () => {
-      el.removeEventListener("scroll", onScroll);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, []);
-
-
-  const goTo = (i: number) => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    el.scrollTo({ left: i * el.clientWidth, behavior: "smooth" });
+  const scrollToFeatures = () => {
+    document.getElementById("features-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  const next = () => goTo(Math.min(active + 1, PANELS.length - 1));
-  const prev = () => goTo(Math.max(active - 1, 0));
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
-
-      <div className="relative flex-1 overflow-hidden">
-        <div
-          ref={scrollerRef}
-          className="flex h-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          <Panel><IntroPanel onStart={next} signedIn={!!user} /></Panel>
-          <Panel><FeaturesPanel /></Panel>
-          <Panel><StepsPanel /></Panel>
-          <Panel><PlatformsPanel /></Panel>
-          <Panel><AtlasworkPanel /></Panel>
-          <Panel><FaqPanel /></Panel>
-          <Panel><CtaPanel signedIn={!!user} /></Panel>
-        </div>
-
-        {/* Centered bottom control cluster: prev · dots · next */}
-        <div className="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border/60 bg-background/80 px-3 py-2 shadow-elegant backdrop-blur">
-          <button
-            onClick={prev}
-            disabled={active === 0}
-            aria-label="Previous"
-            className="grid h-9 w-9 place-items-center rounded-full border border-border/60 bg-background transition hover:scale-105 disabled:pointer-events-none disabled:opacity-30"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <div className="flex items-center gap-3 px-1">
-            <span className="text-xs font-medium tabular-nums text-muted-foreground">
-              {String(active + 1).padStart(2, "0")} / {String(PANELS.length).padStart(2, "0")}
-            </span>
-            <span className="h-3 w-px bg-border" />
-            <div className="flex items-center gap-1.5">
-              {PANELS.map((p, i) => (
-                <button
-                  key={p}
-                  onClick={() => goTo(i)}
-                  aria-label={p}
-                  className={`h-1.5 rounded-full transition-all ${
-                    i === active ? "w-6 bg-primary" : "w-1.5 bg-border hover:bg-muted-foreground/40"
-                  }`}
-                />
-              ))}
-            </div>
-            <span className="hidden text-xs font-medium text-foreground sm:inline">{PANELS[active]}</span>
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 sm:py-8 lg:px-0">
+        <Panel><IntroPanel onStart={scrollToFeatures} signedIn={!!user} /></Panel>
+        <div className="mt-10 space-y-10 sm:space-y-12 lg:space-y-16">
+          <div id="features-panel" className="scroll-mt-24">
+            <FeaturesPanel />
           </div>
-          <button
-            onClick={next}
-            disabled={active === PANELS.length - 1}
-            aria-label="Next"
-            className="grid h-9 w-9 place-items-center rounded-full bg-gradient-primary text-primary-foreground shadow-glow transition hover:scale-105 disabled:pointer-events-none disabled:opacity-30"
-          >
-            <ArrowRight className="h-4 w-4" />
-          </button>
+          <StepsPanel />
+          <PlatformsPanel />
+          <FaqPanel />
+          <CtaPanel signedIn={!!user} />
         </div>
       </div>
     </div>
@@ -194,8 +122,8 @@ function Landing() {
 
 function Panel({ children }: { children: React.ReactNode }) {
   return (
-    <section className="relative flex h-full w-screen shrink-0 snap-center items-start overflow-y-auto pt-6 sm:pt-10">
-      <div className="mx-auto w-full max-w-6xl px-6 pb-28 sm:px-12 sm:pb-32">{children}</div>
+    <section className="relative w-full py-4 sm:py-6 lg:py-8">
+      <div className="mx-auto w-full max-w-6xl">{children}</div>
     </section>
   );
 }
@@ -268,6 +196,10 @@ function IntroPanel({ onStart, signedIn }: { onStart: () => void; signedIn: bool
             <StatCard value="Daily" label="Recruiter visibility" />
           </div>
         </div>
+      </div>
+
+      <div className="mt-12 sm:mt-14">
+        <AtlasworkPanel />
       </div>
 
       {/* Social proof — real-world recruiter invites */}
@@ -408,7 +340,13 @@ function PlatformsPanel() {
           );
         })}
       </div>
-      <p className="mt-6 text-center text-sm text-muted-foreground">More platforms coming soon.</p>
+      <div className="mt-6 flex justify-center">
+        <Button asChild variant="outline" size="sm">
+          <Link to="/freelancers">
+            Explore Atlaswork map <ArrowRight className="ml-2 h-4 w-4" />
+          </Link>
+        </Button>
+      </div>
     </div>
   );
 }

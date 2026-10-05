@@ -1,0 +1,45 @@
+.atlaswork-route-shell {
+	position: relative;
+	min-height: 100dvh;
+}
+
+.atlaswork-seo-intro {
+	position: absolute;
+	z-index: 10;
+	top: 82px;
+	left: 50%;
+	width: min(560px, calc(100% - 32px));
+	padding: 8px 12px;
+	transform: translateX(-50%);
+	border: 1px solid rgb(255 255 255 / 18%);
+	border-radius: 5px;
+	background: rgb(7 17 14 / 78%);
+	color: #f7fbf8;
+	text-align: center;
+	pointer-events: none;
+}
+
+.atlaswork-seo-intro h1 {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 700;
+	line-height: 1.35;
+}
+
+.atlaswork-seo-intro p {
+	margin: 2px 0 0;
+	color: rgb(247 251 248 / 84%);
+	font-size: 10px;
+	line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+	.atlaswork-seo-intro {
+		top: 80px;
+		width: min(440px, calc(100% - 24px));
+		padding: 7px 9px;
+	}
+
+	.atlaswork-seo-intro h1 { font-size: 14px; }
+	.atlaswork-seo-intro p { font-size: 9px; }
+}
