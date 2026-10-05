@@ -1,5 +1,6 @@
 User-agent: *
 Allow: /
+Allow: /freelancers
 
 Disallow: /dashboard
 Disallow: /api/

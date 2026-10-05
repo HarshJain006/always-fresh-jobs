@@ -15,6 +15,9 @@ import {
   Bell,
   Star,
   Download,
+  Globe2,
+  MapPin,
+  UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -86,7 +89,13 @@ const FAQ = [
   },
 ];
 
-const PANELS = ["Intro", "Features", "How it works", "Platforms", "FAQ", "Start"];
+const PANELS = ["Intro", "Features", "How it works", "Platforms", "Atlaswork", "FAQ", "Start"];
+const ATLASWORK_WORLD_TILES = [
+  { x: 0, y: 0 },
+  { x: 1, y: 0 },
+  { x: 0, y: 1 },
+  { x: 1, y: 1 },
+];
 
 function Landing() {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -135,6 +144,7 @@ function Landing() {
           <Panel><FeaturesPanel /></Panel>
           <Panel><StepsPanel /></Panel>
           <Panel><PlatformsPanel /></Panel>
+          <Panel><AtlasworkPanel /></Panel>
           <Panel><FaqPanel /></Panel>
           <Panel><CtaPanel signedIn={!!user} /></Panel>
         </div>
@@ -399,6 +409,83 @@ function PlatformsPanel() {
         })}
       </div>
       <p className="mt-6 text-center text-sm text-muted-foreground">More platforms coming soon.</p>
+    </div>
+  );
+}
+
+function AtlasworkPanel() {
+  return (
+    <div className="mx-auto max-w-6xl">
+      <PanelHeader eyebrow="Worldwide discovery" title="Not just visible to recruiters. Visible to the world." />
+      <div className="mt-12 grid items-center gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
+        <div>
+          <p className="max-w-xl text-lg leading-relaxed text-muted-foreground">
+            DailyResume keeps your resume fresh for recruiter searches. Atlaswork gives freelancers a
+            public map profile so clients everywhere can discover the people, skills, and services they need.
+          </p>
+          <div className="mt-8 grid gap-5 sm:grid-cols-2">
+            <AtlasworkBenefit icon={MapPin} title="Be found by location" text="Pin your professional profile on a live world map." />
+            <AtlasworkBenefit icon={Globe2} title="Reach beyond job boards" text="Show your services, skills, and availability to the world." />
+          </div>
+          <Button asChild size="lg" className="mt-8 bg-gradient-primary shadow-glow">
+            <Link to="/freelancers">
+              Explore Atlaswork <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+        <div
+          role="img"
+          aria-label="OpenStreetMap world map with Atlaswork freelancer profile pins in New York, London, and Delhi"
+          className="relative mx-auto aspect-square w-full max-w-[500px] overflow-hidden rounded-2xl border border-border/60 bg-surface-muted shadow-elegant"
+        >
+          <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
+            {ATLASWORK_WORLD_TILES.map(({ x, y }) => (
+              <img
+                key={`${x}-${y}`}
+                src={`https://tile.openstreetmap.org/1/${x}/${y}.png`}
+                alt=""
+                loading="lazy"
+                className="h-full w-full object-cover"
+              />
+            ))}
+          </div>
+          <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-primary/10" aria-hidden />
+          <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-lg border border-border/60 bg-background/95 px-3 py-2 text-xs font-semibold shadow-elegant backdrop-blur">
+            <Globe2 className="h-4 w-4 text-primary" /> Freelancer profiles worldwide
+          </div>
+          {[
+            { place: "New York", left: "29%", top: "39%" },
+            { place: "London", left: "51%", top: "34%" },
+            { place: "Delhi", left: "72%", top: "43%" },
+          ].map((pin) => (
+            <div key={pin.place} className="absolute z-10 -translate-x-1/2 -translate-y-1/2" style={{ left: pin.left, top: pin.top }}>
+              <div className="grid h-9 w-9 place-items-center rounded-full border-2 border-white bg-gradient-primary text-primary-foreground shadow-glow">
+                <UserRound className="h-4 w-4" />
+              </div>
+              <span className="absolute left-1/2 top-10 -translate-x-1/2 whitespace-nowrap rounded-md border border-border/60 bg-background/95 px-2 py-1 text-[10px] font-semibold text-foreground shadow-elegant">
+                {pin.place}
+              </span>
+            </div>
+          ))}
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="absolute bottom-2 right-2 z-10 rounded bg-background/90 px-1.5 py-1 text-[9px] text-muted-foreground">
+            © OpenStreetMap contributors
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AtlasworkBenefit({ icon: Icon, title, text }: { icon: typeof MapPin; title: string; text: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-secondary to-background text-primary ring-soft">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div>
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{text}</p>
+      </div>
     </div>
   );
 }

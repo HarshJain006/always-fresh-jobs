@@ -34,8 +34,15 @@ In Supabase → SQL Editor, run:
 8. `supabase/migrations/009_trial_5_days_and_trial_ending.sql` ← **5-day trial + trial ending emails**
 9. `supabase/migrations/011_trial_starts_on_refresh.sql` ← **trial clock starts on Start daily refresh**
 10. `supabase/migrations/012`–`016` (email + `automation_logs_with_users` view)
+11. `supabase/migrations/017_email_reminder_events_queued_status.sql`
+12. `supabase/migrations/018_fix_trial_start_tamper_trigger.sql`
+13. `supabase/migrations/019_freelancer_profiles.sql` (freelancer map profiles)
 
 Confirm tables `automation_jobs`, `automation_logs`, `user_automation` exist.
+
+For Atlaswork, also confirm `freelancer_profiles` exists after migration `019`. Netlify must have the existing server-side Supabase settings (`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`) so authenticated profile saves and public directory reads use the protected server client. Never expose the service-role key as a `VITE_*` variable.
+
+After deploying, open `https://dailyresume.in/sitemap.xml` and confirm it lists `/freelancers`. Add the `dailyresume.in` domain property in Google Search Console, submit the sitemap, then use URL Inspection for `https://dailyresume.in/freelancers` and request indexing. Crawling and ranking are controlled by search engines and cannot be guaranteed by deployment settings.
 
 ### Matching activity logs to users
 

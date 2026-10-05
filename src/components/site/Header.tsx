@@ -44,6 +44,9 @@ export function Header() {
           <Link to="/pricing" className="hover:text-foreground">
             Pricing
           </Link>
+          <Link to="/freelancers" className="hover:text-foreground">
+            Atlaswork
+          </Link>
           <Link to="/download" className="hover:text-foreground">
             Download
           </Link>
@@ -54,6 +57,9 @@ export function Header() {
               <Download className="h-4 w-4" />
               <span className="sr-only">Download app</span>
             </Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm" className="md:hidden">
+            <Link to="/freelancers">Atlaswork</Link>
           </Button>
           {user ? (
             <Button asChild size="sm" className="bg-gradient-primary shadow-glow">

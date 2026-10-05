@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as FreelancersRouteImport } from './routes/freelancers'
 import { Route as DownloadRouteImport } from './routes/download'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
@@ -32,6 +33,11 @@ const PricingRoute = PricingRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FreelancersRoute = FreelancersRouteImport.update({
+  id: '/freelancers',
+  path: '/freelancers',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DownloadRoute = DownloadRouteImport.update({
@@ -69,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/download': typeof DownloadRoute
+  '/freelancers': typeof FreelancersRoute
   '/login': typeof LoginRoute
   '/pricing': typeof PricingRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/download': typeof DownloadRoute
+  '/freelancers': typeof FreelancersRoute
   '/login': typeof LoginRoute
   '/pricing': typeof PricingRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/download': typeof DownloadRoute
+  '/freelancers': typeof FreelancersRoute
   '/login': typeof LoginRoute
   '/pricing': typeof PricingRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/download'
+    | '/freelancers'
     | '/login'
     | '/pricing'
     | '/sitemap.xml'
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/download'
+    | '/freelancers'
     | '/login'
     | '/pricing'
     | '/sitemap.xml'
@@ -127,6 +138,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/download'
+    | '/freelancers'
     | '/login'
     | '/pricing'
     | '/sitemap.xml'
@@ -139,6 +151,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRoute
   DownloadRoute: typeof DownloadRoute
+  FreelancersRoute: typeof FreelancersRoute
   LoginRoute: typeof LoginRoute
   PricingRoute: typeof PricingRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
@@ -168,6 +181,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/freelancers': {
+      id: '/freelancers'
+      path: '/freelancers'
+      fullPath: '/freelancers'
+      preLoaderRoute: typeof FreelancersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/download': {
@@ -219,6 +239,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRoute,
   DownloadRoute: DownloadRoute,
+  FreelancersRoute: FreelancersRoute,
   LoginRoute: LoginRoute,
   PricingRoute: PricingRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,

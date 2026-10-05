@@ -142,7 +142,7 @@ export async function completeGoogleLogin(): Promise<AppUser> {
   }
 }
 
-export async function startGoogleLogin(): Promise<never> {
+export async function startGoogleLogin(returnPath = "/dashboard"): Promise<never> {
   if (typeof window === "undefined") {
     throw new Error("Google sign-in only works in the browser.");
   }
@@ -154,9 +154,10 @@ export async function startGoogleLogin(): Promise<never> {
 
   const nonce = Math.random().toString(36).substring(2);
   const authUrl = buildAuthUrl(clientId, redirectUri, nonce);
+  const safeReturn = safeReturnPath(returnPath);
 
   try {
-    sessionStorage.setItem(OAUTH_RETURN_KEY, "/login?oauth=1");
+    sessionStorage.setItem(OAUTH_RETURN_KEY, `/login?oauth=1&returnTo=${encodeURIComponent(safeReturn)}`);
   } catch {
     /* ignore */
   }
@@ -218,6 +219,26 @@ export function getSessionToken(): string | null {
     return window.localStorage.getItem(SESSION_TOKEN_KEY);
   } catch {
     return null;
+  }
+}
+
+export function safeReturnPath(path: string | undefined, fallback = "/dashboard"): string {
+  if (
+    typeof window === "undefined" ||
+    !path ||
+    !path.startsWith("/") ||
+    path.startsWith("//") ||
+    path.includes("\\")
+  ) {
+    return fallback;
+  }
+  try {
+    const target = new URL(path, window.location.origin);
+    return target.origin === window.location.origin
+      ? `${target.pathname}${target.search}${target.hash}`
+      : fallback;
+  } catch {
+    return fallback;
   }
 }
 

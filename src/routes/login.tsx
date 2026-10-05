@@ -1,14 +1,16 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { z } from "zod";
 import { Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { completeGoogleLogin, getCurrentUser, getSessionToken, startGoogleLogin } from "@/auth/googleAuth";
+import { completeGoogleLogin, getCurrentUser, getSessionToken, safeReturnPath, startGoogleLogin } from "@/auth/googleAuth";
 import { TRIAL_DAYS } from "@/lib/trial";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 
 export const Route = createFileRoute("/login")({
+  validateSearch: z.object({ returnTo: z.string().optional() }),
   head: () => ({
     meta: [
       { title: "Sign in — DailyResume" },
@@ -22,8 +24,12 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
-  const navigate = useNavigate();
+  const { returnTo: requestedReturn } = Route.useSearch();
   const [loading, setLoading] = useState(false);
+  const returnTo = safeReturnPath(requestedReturn);
+  const cleanLoginPath = requestedReturn
+    ? `/login?returnTo=${encodeURIComponent(returnTo)}`
+    : "/login";
 
   // Finish OAuth when returning from google-callback.html
   useEffect(() => {
@@ -35,8 +41,8 @@ function LoginPage() {
     // If a previous Strict Mode run already signed us in (with session token), go to dashboard
     const existing = getCurrentUser();
     if (existing && getSessionToken()) {
-      window.history.replaceState({}, "", "/login");
-      navigate({ to: "/dashboard" });
+      window.history.replaceState({}, "", cleanLoginPath);
+      window.location.replace(returnTo);
       return;
     }
 
@@ -44,22 +50,22 @@ function LoginPage() {
       try {
         await completeGoogleLogin();
         toast.success("Welcome to DailyResume!");
-        window.history.replaceState({}, "", "/login");
-        navigate({ to: "/dashboard" });
+        window.history.replaceState({}, "", cleanLoginPath);
+        window.location.replace(returnTo);
       } catch (e) {
         console.error("OAuth complete failed:", e);
         const msg = e instanceof Error ? e.message : "Sign-in failed. Try again.";
         toast.error(msg);
         setLoading(false);
-        window.history.replaceState({}, "", "/login");
+        window.history.replaceState({}, "", cleanLoginPath);
       }
     })();
-  }, [navigate]);
+  }, [cleanLoginPath, returnTo]);
 
   async function handleGoogle() {
     setLoading(true);
     try {
-      await startGoogleLogin();
+      await startGoogleLogin(returnTo);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Sign-in failed. Try again.";
       toast.error(msg);
