@@ -1,34 +1,21 @@
-import { ClientOnly, createFileRoute } from "@tanstack/react-router";
+import { ClientOnly } from "@tanstack/react-router";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Globe2, LocateFixed, LogOut, Pencil, Search, Sparkles } from "lucide-react";
-import type { User } from "@supabase/supabase-js";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { signInWithGoogle } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
-import type { MapProfile, ViewTarget } from "@/components/FreelancerMap";
-import { ProfileEditor } from "@/components/ProfileEditor";
-import { ProfileDetails } from "@/components/ProfileDetails";
-import { FavoritesSidebar } from "@/components/FavoritesSidebar";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { getCurrentUser, getSessionToken, AUTH_CHANGE_EVENT, STORAGE_KEY, logoutUser } from "../../../src/auth/googleAuth";
+import { loadFavoriteProfileIds, loadListedAtlasworkProfiles, loadMyAtlasworkProfile, updateFavorite } from "../lib/dailyresumeBridge";
+import type { MapProfile, ViewTarget } from "../components/FreelancerMap";
+import { ProfileEditor } from "../components/ProfileEditor";
+import { ProfileDetails } from "../components/ProfileDetails";
+import { FavoritesSidebar } from "../components/FavoritesSidebar";
 
-const FreelancerMap = lazy(() => import("@/components/FreelancerMap").then((module) => ({ default: module.FreelancerMap })));
+const FreelancerMap = lazy(() => import("../components/FreelancerMap").then((module) => ({ default: module.FreelancerMap })));
 
-export const Route = createFileRoute("/")({
-  head: () => ({ meta: [
-    { title: "Atlaswork | Freelancers Around the World" },
-    { name: "description", content: "Explore a live map of independent professionals, their services, skills, availability, and pricing." },
-    { property: "og:title", content: "Atlaswork | Freelancers Around the World" },
-    { property: "og:description", content: "Explore a live map of independent professionals and their services." },
-    { property: "og:type", content: "website" },
-    { name: "twitter:card", content: "summary_large_image" },
-  ] }),
-  component: Index,
-});
-
-function Index() {
+export function AtlasworkPage() {
   const [profiles, setProfiles] = useState<MapProfile[]>([]);
-  const [me, setMe] = useState<User | null>(null);
+  const [me, setMe] = useState<{ id: string } | null>(null);
   const [myProfile, setMyProfile] = useState<MapProfile | null>(null);
   const [selected, setSelected] = useState<MapProfile | null>(null);
   const [editing, setEditing] = useState(false);
@@ -44,31 +31,41 @@ function Index() {
 
   const loadFavorites = useCallback(async (userId: string | null) => {
     if (!userId) { setFavoriteIds([]); return; }
-    const { data } = await supabase.from("favorites").select("profile_id").eq("user_id", userId);
-    setFavoriteIds((data ?? []).map((row) => row.profile_id));
+    try {
+      setFavoriteIds(await loadFavoriteProfileIds());
+    } catch (error) {
+      console.error("Could not load Atlaswork favorites:", error);
+      setFavoriteIds([]);
+    }
   }, []);
 
   const loadProfiles = useCallback(async () => {
-    const [{ data: listed, error }, { data: auth }] = await Promise.all([
-      supabase.from("profiles").select("*").eq("is_listed", true),
-      supabase.auth.getUser(),
-    ]);
-    if (error) toast.error("Could not load the freelancer map.");
-    setProfiles((listed ?? []) as MapProfile[]);
-    setMe(auth.user);
-    void loadFavorites(auth.user?.id ?? null);
-    if (auth.user) {
-      const { data } = await supabase.from("profiles").select("*").eq("id", auth.user.id).maybeSingle();
-      const mine = data as MapProfile | null;
-      setMyProfile(mine);
-      if (!homeSet.current && mine?.latitude != null && mine.longitude != null) {
-        homeSet.current = true;
-        setViewTarget({ center: [mine.latitude, mine.longitude], zoom: 9.5, key: `my-city-${mine.id}` });
-      }
-      // Right after signing up, take the freelancer straight to their profile setup.
-      if (mine && !mine.is_listed && !promptedSetup.current) {
-        promptedSetup.current = true;
-        setEditing(true);
+    const dailyUser = getCurrentUser();
+    const currentUser = dailyUser ? { id: dailyUser.id } : null;
+    setMe(currentUser);
+    try {
+      setProfiles(await loadListedAtlasworkProfiles());
+    } catch (error) {
+      console.error("Could not load the freelancer map:", error);
+      toast.error("Could not load the freelancer map. Check the Supabase setup.");
+    }
+    void loadFavorites(currentUser?.id ?? null);
+    if (currentUser && getSessionToken()) {
+      try {
+        const result = await loadMyAtlasworkProfile();
+        const mine = result.profile ?? createEmptyProfile(result.user.id, result.user.name, result.user.email, result.user.profile_image);
+        setMyProfile(mine);
+        if (!homeSet.current && mine.latitude != null && mine.longitude != null) {
+          homeSet.current = true;
+          setViewTarget({ center: [mine.latitude, mine.longitude], zoom: 9.5, key: `my-city-${mine.id}` });
+        }
+        if (!mine.is_listed && !promptedSetup.current) {
+          promptedSetup.current = true;
+          setEditing(true);
+        }
+      } catch (error) {
+        console.error("Could not load your Atlaswork profile:", error);
+        setMyProfile(null);
       }
     } else {
       setMyProfile(null);
@@ -76,11 +73,50 @@ function Index() {
     }
   }, [loadFavorites]);
 
+  function createEmptyProfile(userId: string, name: string, email: string, avatar: string): MapProfile {
+    return {
+      id: userId,
+      username: `freelancer-${userId.replaceAll("-", "").slice(0, 8)}`,
+      full_name: name,
+      headline: "",
+      bio: "",
+      avatar_url: avatar || null,
+      latitude: null,
+      longitude: null,
+      location_name: "",
+      tags: [],
+      services: [],
+      starting_price: null,
+      currency: "USD",
+      is_available: true,
+      is_listed: false,
+      contact_email: email,
+      linkedin_url: "",
+      instagram_url: "",
+      whatsapp_number: "",
+      telegram_id: "",
+      address: "",
+      show_address: false,
+      github_repos: [],
+      country: "",
+    };
+  }
+
   useEffect(() => {
     void loadProfiles();
-    const channel = supabase.channel("live-freelancers").on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => void loadProfiles()).subscribe();
-    const { data } = supabase.auth.onAuthStateChange((event) => { if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") void loadProfiles(); });
-    return () => { void supabase.removeChannel(channel); data.subscription.unsubscribe(); };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY || event.key === null) void loadProfiles();
+    };
+    window.addEventListener(AUTH_CHANGE_EVENT, loadProfiles);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", loadProfiles);
+    const refreshTimer = window.setInterval(() => void loadProfiles(), 60_000);
+    return () => {
+      window.removeEventListener(AUTH_CHANGE_EVENT, loadProfiles);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", loadProfiles);
+      window.clearInterval(refreshTimer);
+    };
   }, [loadProfiles]);
 
   useEffect(() => {
@@ -133,29 +169,26 @@ function Index() {
   }
 
   async function signIn() {
-    const result = await signInWithGoogle();
-    if (result.error) toast.error(result.error.message);
+    window.location.assign("/login?returnTo=%2Ffreelancers");
   }
 
 
   async function signOut() {
-    await supabase.auth.signOut();
+    await logoutUser();
     setEditing(false); setPicking(false); setSelected(null); setMe(null); setMyProfile(null); setFavoriteIds([]);
     promptedSetup.current = false;
   }
 
   async function toggleFavorite(profile: MapProfile) {
     if (!me) { void signIn(); return; }
-    if (favoriteIds.includes(profile.id)) {
-      const { error } = await supabase.from("favorites").delete().eq("user_id", me.id).eq("profile_id", profile.id);
-      if (error) { toast.error(error.message); return; }
-      setFavoriteIds((ids) => ids.filter((id) => id !== profile.id));
-      return;
+    const favorite = !favoriteIds.includes(profile.id);
+    try {
+      await updateFavorite(profile.id, favorite);
+      setFavoriteIds((ids) => favorite ? [...ids, profile.id] : ids.filter((id) => id !== profile.id));
+      if (favorite) toast.success("Added to your favourites.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update favourites.");
     }
-    const { error } = await supabase.from("favorites").insert({ user_id: me.id, profile_id: profile.id });
-    if (error) { toast.error(error.message); return; }
-    setFavoriteIds((ids) => [...ids, profile.id]);
-    toast.success("Added to your favourites.");
   }
 
   function openFavorite(profile: MapProfile) {
@@ -179,7 +212,7 @@ function Index() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="atlaswork-shell app-shell">
       <header className="topbar">
         <div className="brand"><span className="brand-mark">A</span>Atlaswork</div>
         <div className="search-wrap">

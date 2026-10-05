@@ -153,6 +153,7 @@
 
 @layer components {
   .app-shell { height: 100dvh; overflow: hidden; background: var(--color-background); }
+  .atlaswork-shell { height: 100dvh; overflow: hidden; }
   .topbar { height: 72px; display: flex; align-items: center; gap: 32px; padding: 0 24px; border-bottom: 1px solid color-mix(in oklch, var(--color-border) 78%, transparent); background: color-mix(in oklch, var(--color-card) 94%, transparent); box-shadow: 0 8px 30px oklch(0.25 0.04 255 / 7%); position: relative; z-index: 800; }
   .brand { display: flex; align-items: center; gap: 10px; min-width: max-content; color: var(--color-foreground); font-size: 21px; font-weight: 800; }
   .brand-mark { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--color-primary); color: var(--color-primary-foreground); font-family: var(--font-sans); font-size: 12px; font-weight: 800; box-shadow: 0 7px 16px color-mix(in oklch, var(--color-primary) 24%, transparent); }

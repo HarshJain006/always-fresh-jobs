@@ -21,9 +21,9 @@ import {
 } from "lucide-react";
 
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
+import { Button } from "./ui/button";
+import { Textarea } from "./ui/textarea";
+import { loadPortfolio as loadFreelancerPortfolio, loadProfileActivity, postComment as saveComment, removeComment as deleteComment, saveReaction } from "../lib/dailyresumeBridge";
 import type { MapProfile } from "./FreelancerMap";
 
 type Comment = {
@@ -65,48 +65,24 @@ export function ProfileDetails({
 
 
   const loadReactions = useCallback(async () => {
-    const { data } = await supabase.from("profile_reactions").select("user_id,value").eq("profile_id", profile.id);
-    const rows = data ?? [];
-    setLikes(rows.filter((row) => row.value === 1).length);
-    setDislikes(rows.filter((row) => row.value === -1).length);
-    const mine = viewerId ? rows.find((row) => row.user_id === viewerId) : undefined;
-    setMyVote(mine ? ((mine.value === 1 ? 1 : -1) as 1 | -1) : null);
-  }, [profile.id, viewerId]);
-
-  const loadComments = useCallback(async () => {
-    const { data } = await supabase
-      .from("profile_comments")
-      .select("id,author_id,body,created_at")
-      .eq("profile_id", profile.id)
-      .order("created_at", { ascending: false });
-    const rows = data ?? [];
-    const authorIds = [...new Set(rows.map((row) => row.author_id))];
-    const authors = authorIds.length
-      ? (await supabase.from("profiles").select("id,full_name,username,avatar_url").in("id", authorIds)).data ?? []
-      : [];
-    setComments(
-      rows.map((row) => {
-        const author = authors.find((entry) => entry.id === row.author_id);
-        return {
-          ...row,
-          author_name: author?.full_name || (author?.username ? `@${author.username}` : "Someone"),
-          author_avatar: author?.avatar_url ?? null,
-        };
-      }),
-    );
+    try {
+      const activity = await loadProfileActivity(profile.id);
+      setLikes(activity.likes);
+      setDislikes(activity.dislikes);
+      setMyVote(activity.myVote);
+      setComments(activity.comments as Comment[]);
+    } catch (error) {
+      console.error("Could not load Atlaswork profile activity:", error);
+    }
   }, [profile.id]);
 
   useEffect(() => {
     setShowPortfolio(false);
-    void supabase
-      .from("portfolio_items")
-      .select("id,title,description,image_url,image_urls,category,client_name,completion_year,project_url,tools,results")
-      .eq("profile_id", profile.id)
-      .order("sort_order")
-      .then(({ data }) => setPortfolio(data ?? []));
+    void loadFreelancerPortfolio(profile.id).then((items) => setPortfolio(items as PortfolioItem[])).catch((error) => {
+      console.error("Could not load freelancer portfolio:", error);
+    });
     void loadReactions();
-    void loadComments();
-  }, [profile.id, loadReactions, loadComments]);
+  }, [profile.id, loadReactions]);
 
   useEffect(() => {
     if (!showPortfolio) return;
@@ -118,14 +94,11 @@ export function ProfileDetails({
 
   async function vote(value: 1 | -1) {
     if (!viewerId) { onRequireSignIn(); return; }
-    if (myVote === value) {
-      const { error } = await supabase.from("profile_reactions").delete().eq("profile_id", profile.id).eq("user_id", viewerId);
-      if (error) { toast.error(error.message); return; }
-    } else {
-      const { error } = await supabase
-        .from("profile_reactions")
-        .upsert({ profile_id: profile.id, user_id: viewerId, value }, { onConflict: "profile_id,user_id" });
-      if (error) { toast.error(error.message); return; }
+    try {
+      await saveReaction(profile.id, myVote === value ? null : value);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save reaction.");
+      return;
     }
     void loadReactions();
   }
@@ -136,17 +109,24 @@ export function ProfileDetails({
     if (!body) { toast.error("Write something first."); return; }
     if (body.length > 1000) { toast.error("Keep your comment under 1000 characters."); return; }
     setPosting(true);
-    const { error } = await supabase.from("profile_comments").insert({ profile_id: profile.id, author_id: viewerId, body });
-    setPosting(false);
-    if (error) { toast.error(error.message); return; }
-    setDraft("");
-    void loadComments();
+    try {
+      await saveComment(profile.id, body);
+      setDraft("");
+      void loadReactions();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not post comment.");
+    } finally {
+      setPosting(false);
+    }
   }
 
   async function removeComment(id: string) {
-    const { error } = await supabase.from("profile_comments").delete().eq("id", id);
-    if (error) { toast.error(error.message); return; }
-    void loadComments();
+    try {
+      await deleteComment(profile.id, id);
+      void loadReactions();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not delete comment.");
+    }
   }
 
   const contacts: { key: string; icon: ReactNode; title: string; label: string; href: string }[] = [];

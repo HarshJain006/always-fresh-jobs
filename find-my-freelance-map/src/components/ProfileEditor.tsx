@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Check, Crosshair, ImagePlus, LocateFixed, MapPin, X } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { supabase } from "@/integrations/supabase/client";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
+import { Switch } from "./ui/switch";
+import { addPortfolioItem, saveProfile, uploadImage } from "../lib/dailyresumeBridge";
 import type { MapProfile } from "./FreelancerMap";
 
 type EditorProps = {
@@ -82,18 +82,13 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
 
   async function uploadAvatar(file: File) {
     setUploading(true);
-    const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-    const path = `${profile.id}/avatar-${Date.now()}.${extension}`;
-    const upload = await supabase.storage.from("freelancer-media").upload(path, file, { upsert: true });
-    if (upload.error) {
-      toast.error(upload.error.message);
+    try {
+      setAvatarUrl(await uploadImage(file));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not upload profile image.");
+    } finally {
       setUploading(false);
-      return;
     }
-    const signed = await supabase.storage.from("freelancer-media").createSignedUrl(path, 31536000);
-    if (signed.error) toast.error(signed.error.message);
-    else setAvatarUrl(signed.data.signedUrl);
-    setUploading(false);
   }
 
   async function uploadProjects(files: File[]): Promise<void> {
@@ -105,18 +100,15 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
     setUploading(true);
     const imageUrls: string[] = [];
     for (const [index, file] of files.entries()) {
-      const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-      const path = `${profile.id}/work-${Date.now()}-${index}.${extension}`;
-      const upload = await supabase.storage.from("freelancer-media").upload(path, file);
-      if (upload.error) { toast.error(upload.error.message); continue; }
-      const signed = await supabase.storage.from("freelancer-media").createSignedUrl(path, 31536000);
-      if (signed.error) { toast.error(signed.error.message); continue; }
-      imageUrls.push(signed.data.signedUrl);
+      try {
+        imageUrls.push(await uploadImage(file));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : `Could not upload screenshot ${index + 1}.`);
+      }
     }
     if (!imageUrls.length) { setUploading(false); return; }
     const year = projectYear ? Number(projectYear) : null;
-    const created = await supabase.from("portfolio_items").insert({
-      profile_id: profile.id,
+    const created = await addPortfolioItem({
       title,
       category: projectCategory.trim(),
       client_name: projectClient.trim(),
@@ -125,12 +117,10 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
       description: projectDescription.trim(),
       tools: projectTools.split(",").map((tool) => tool.trim()).filter(Boolean),
       results: projectResults.trim(),
-      image_url: imageUrls[0] ?? "",
       image_urls: imageUrls,
-      sort_order: Date.now(),
     });
     setUploading(false);
-    if (created.error) { toast.error(created.error.message); return; }
+    if (!created) return;
     setProjectTitle(""); setProjectCategory(""); setProjectClient(""); setProjectYear("");
     setProjectUrl(""); setProjectDescription(""); setProjectTools(""); setProjectResults("");
     toast.success(`Project added with ${imageUrls.length} screenshot${imageUrls.length > 1 ? "s" : ""}.`);
@@ -150,7 +140,7 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
       return;
     }
     setSaving(true);
-    const { error } = await supabase.from("profiles").update({
+    const profileUpdate = {
       username: String(form.get("username") ?? "").trim(),
       full_name: String(form.get("fullName") ?? "").trim(),
       headline: String(form.get("headline") ?? "").trim(),
@@ -174,14 +164,18 @@ export function ProfileEditor({ profile, onClose, onSaved, onPickOnMap, onLocati
       avatar_url: avatarUrl || null,
       is_available: form.get("available") === "on",
       is_listed: isListed,
-    }).eq("id", profile.id);
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+      website_url: "",
+    };
+    setSaving(true);
+    try {
+      await saveProfile(profileUpdate);
+      toast.success("Your freelancer profile is live.");
+      onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save your profile.");
+    } finally {
+      setSaving(false);
     }
-    toast.success("Your freelancer profile is live.");
-    onSaved();
   }
 
   return (
