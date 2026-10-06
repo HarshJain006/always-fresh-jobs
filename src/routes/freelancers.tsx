@@ -1,7 +1,6 @@
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import "../../find-my-freelance-map/src/styles.css";
-import "@/styles/freelancers.css";
 
 const AtlasworkPage = lazy(() =>
   import("../../find-my-freelance-map/src/routes/index").then((module) => ({ default: module.AtlasworkPage })),
@@ -40,16 +39,10 @@ export const Route = createFileRoute("/freelancers")({
 
 function FreelancersRoute() {
   return (
-    <div className="atlaswork-route-shell">
-      <div className="atlaswork-seo-intro">
-        <h1>Find freelancers worldwide</h1>
-        <p>Explore independent professionals by skills, services, availability, and location on Atlaswork’s interactive world map.</p>
-      </div>
-      <ClientOnly fallback={<div className="grid h-screen place-items-center bg-background text-muted-foreground">Loading Atlaswork...</div>}>
-        <Suspense fallback={<div className="grid h-screen place-items-center bg-background text-muted-foreground">Loading Atlaswork...</div>}>
-          <AtlasworkPage />
-        </Suspense>
-      </ClientOnly>
-    </div>
+    <ClientOnly fallback={<div className="grid h-screen place-items-center bg-background text-muted-foreground">Loading Atlaswork...</div>}>
+      <Suspense fallback={<div className="grid h-screen place-items-center bg-background text-muted-foreground">Loading Atlaswork...</div>}>
+        <AtlasworkPage />
+      </Suspense>
+    </ClientOnly>
   );
 }
