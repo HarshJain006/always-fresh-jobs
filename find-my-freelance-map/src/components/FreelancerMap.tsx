@@ -5,7 +5,7 @@ import * as THREE from "three";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-const spaceImage = "/textures/milky-way.jpg";
+const spaceImage = "/textures/stars-sparse.jpg";
 const earthTextureImage = "/textures/earth-day.jpg";
 const earthTileCache = new Map<string, Promise<Uint8Array>>();
 let earthSourcePromise: Promise<{ pixels: Uint8ClampedArray; width: number; height: number }> | null = null;
@@ -366,7 +366,7 @@ export function FreelancerMap({
     const galaxyTexture = textureLoader.load(spaceImage, configureTexture);
     galaxyTexture.colorSpace = THREE.SRGBColorSpace;
     skyMaterial.map = galaxyTexture;
-    skyMaterial.color.setScalar(0.82);
+    skyMaterial.color.setScalar(0.9);
     skyMaterial.needsUpdate = true;
     const resizeSky = () => {
       const width = sky.clientWidth;
@@ -384,13 +384,14 @@ export function FreelancerMap({
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), "bottom-right");
     map.touchZoomRotate.enableRotation();
 
-    // Sample the panorama like a celestial sphere at infinity. Camera yaw and
-    // elevation move the sky in opposite directions, while zoom/position add
-    // no parallax and there is no independent background animation.
+    // Keep the panorama aligned with the globe interaction, without parallax
+    // or independent background animation.
     const initialCenter = map.getCenter();
     let previousSkyYaw = initialCenter.lng + map.getBearing();
     let unwrappedSkyYaw = previousSkyYaw;
     const initialSkyElevation = initialCenter.lat - map.getPitch();
+    const skyTargetRotation = new THREE.Euler(0, 0, 0, "YXZ");
+    const skyTargetQuaternion = new THREE.Quaternion();
     const syncSpaceBackdrop = () => {
       const sky = skyRef.current;
       if (!sky) return;
@@ -403,13 +404,13 @@ export function FreelancerMap({
       previousSkyYaw = yaw;
       const elevation = center.lat - map.getPitch();
       const elevationDelta = elevation - initialSkyElevation;
-      skyGroup.rotation.set(
-        THREE.MathUtils.degToRad(-elevationDelta),
-        THREE.MathUtils.degToRad(unwrappedSkyYaw),
+      skyTargetRotation.set(
+        THREE.MathUtils.degToRad(elevationDelta),
+        THREE.MathUtils.degToRad(-unwrappedSkyYaw),
         0,
         "YXZ",
       );
-      renderSky();
+      skyTargetQuaternion.setFromEuler(skyTargetRotation);
     };
 
     const stopSpinning = () => { spinningRef.current = false; };
@@ -428,6 +429,8 @@ export function FreelancerMap({
         center.lng -= 1.2 * dt;
         map.jumpTo({ center });
       }
+      skyGroup.quaternion.slerp(skyTargetQuaternion, 1 - Math.exp(-19 * dt));
+      renderSky();
       frame = requestAnimationFrame(spin);
     };
     map.once("load", () => { frame = requestAnimationFrame(spin); });
